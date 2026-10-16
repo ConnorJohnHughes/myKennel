@@ -1,10 +1,10 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, AppState, KeyboardAvoidingView, Platform, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, KeyboardAvoidingView, Platform, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
-import type { Session } from '@supabase/supabase-js';
+import { useNursery } from './src/useNursery';
 import DateField from './src/DateField';
-import { formatDate, displayWeight, emptyRecords, history, today, weightToGrams, weightInput, type WeightUnit, type Records, type Litter, type Puppy, type Weight } from './src/domain';
-import { addLitter, addPuppy, loadRecords, saveWeight, updateLitter, updatePuppy, updateWeight, supabase } from './src/storage';
+import { formatDate, displayWeight, history, today, weightToGrams, weightInput, type WeightUnit, type Litter, type Puppy, type Weight } from './src/domain';
+import { addLitter, addPuppy, saveWeight, updateLitter, updatePuppy, updateWeight, supabase } from './src/storage';
 
 function Button({label,onPress,secondary=false,disabled=false,accessibilityLabel,expanded}:{expanded?:boolean;accessibilityLabel?:string;label:string;onPress:()=>void;secondary?:boolean;disabled?:boolean}) {
   return <Pressable accessibilityRole="button" accessibilityLabel={accessibilityLabel} accessibilityState={{disabled,expanded}} aria-expanded={expanded} disabled={disabled} onPress={onPress} style={[s.button,secondary && s.secondary,disabled && {opacity:.45}]}><Text style={[s.buttonText,secondary && {color:'#244c40'}]}>{label}</Text></Pressable>;
@@ -13,16 +13,14 @@ function Field({label,value,onChangeText,placeholder,secure=false,numeric=false}
   return <View style={s.field}><Text style={s.label}>{label}</Text><TextInput accessibilityLabel={label} style={s.input} value={value} onChangeText={onChangeText} placeholder={placeholder} placeholderTextColor="#7b8580" secureTextEntry={secure} keyboardType={numeric?'decimal-pad':'default'} autoCapitalize="none" autoCorrect={false}/></View>;
 }
 export default function App() {
-  const [records,setRecords] = useState<Records>(emptyRecords);
-  const [session,setSession] = useState<Session|null>(null);
-  const [authReady,setAuthReady] = useState(!supabase);
-  const [loading,setLoading] = useState(false);
+  const {records,session,authReady,hasAccess,loading,connection,syncError,refresh,connect}=useNursery();
   const [busy,setBusy] = useState(false);
   const [error,setError] = useState('');
   const [notice,setNotice] = useState('');
   const [expandedHistories,setExpandedHistories] = useState<Record<string,boolean>>({});
   const [selected,setSelected] = useState<string|null>(null);
   const [form,setForm] = useState<'litter'|'puppy'|'weight'|null>(null);
+  const [editingVersion,setEditingVersion] = useState<number|undefined>(undefined);
   const [editingId,setEditingId] = useState<string|null>(null);
   const [weightUnit,setWeightUnit] = useState<WeightUnit>('oz');
   const scroll = useRef<ScrollView>(null);
@@ -32,62 +30,38 @@ export default function App() {
   const [weightDirty,setWeightDirty] = useState(false);
   const [name,setName] = useState(''); const [mother,setMother] = useState(''); const [father,setFather] = useState('');
   const [date,setDate] = useState(today()); const [weight,setWeight] = useState('');
-  const [email,setEmail] = useState(''); const [password,setPassword] = useState('');
+  const [accessCode,setAccessCode] = useState('');
   const lock = useRef(false);
-  const account = useRef<string|null>(null);
   const litter = records.litters.find(l => l.id === selected);
   const puppies = records.puppies.filter(p => p.litterId === selected);
   const puppy = records.puppies.find(p => p.id === puppyId);
 
-  useEffect(() => {
-    if (!supabase) return;
-    supabase.auth.getSession().then(({data,error}) => {
-      if(error) setError(error.message);
-      setSession(data.session);setAuthReady(true);
-    }).catch(e => {setError(String(e));setAuthReady(true);});
-    const {data} = supabase.auth.onAuthStateChange((_event,next) => {setSession(next);setAuthReady(true);});
-    const listener = AppState.addEventListener('change',state => {
-      if(state === 'active') supabase!.auth.startAutoRefresh(); else supabase!.auth.stopAutoRefresh();
-    });
-    if(AppState.currentState === 'active') supabase.auth.startAutoRefresh();
-    return () => {data.subscription.unsubscribe();listener.remove();supabase!.auth.stopAutoRefresh();};
-  },[]);
-  useEffect(() => {
-    account.current = session?.user.id ?? null;
-    setRecords(emptyRecords);setSelected(null);setForm(null);
-    if(supabase && !session) return;
-    let active = true;
-    setLoading(true);
-    loadRecords().then(data => {if(active)setRecords(data);}).catch(e => {if(active)setError(e.message || String(e));}).finally(() => {if(active)setLoading(false);});
-    return () => {active=false;};
-  },[session?.user.id]);
+  useEffect(()=>{setSelected(null);setForm(null);setError('');},[session?.user.id]);
 
   useEffect(()=>{setExpandedHistories({});},[selected,session?.user.id]);
 
   async function run(action:()=>Promise<void>) {
     if(lock.current) return;
     lock.current=true;setBusy(true);setError('');setNotice('');
-    try {await action();} catch(e:any) {setError(e.message || 'Unable to save. Please try again.');}
+    try {await action();} catch(e:any) {
+      setError(e.message || 'Unable to save. Please try again.');
+      if(e.code==='EDIT_CONFLICT')try{await refresh();}catch{}
+    }
     finally {lock.current=false;setBusy(false);}
   }
-  async function refresh() {
-    const owner = account.current;
-    const data = await loadRecords();
-    if(owner === account.current) setRecords(data);
-  }
   function open(kind:'litter'|'puppy'|'weight',id?:string) {
-    setEditingId(null);setWeightUnit('oz');setPounds('');setOriginalWeight(null);setWeightDirty(false);
+    setEditingId(null);setEditingVersion(undefined);setWeightUnit('oz');setPounds('');setOriginalWeight(null);setWeightDirty(false);
     setForm(kind);setName('');setMother('');setFather('');setDate(today());setWeight('');setError('');setNotice('');setPuppyId(id ?? null);
     requestAnimationFrame(()=>scroll.current?.scrollTo({y:0,animated:true}));
   }
   function editLitter(item: Litter) {
-    open('litter');setEditingId(item.id);setName(item.name);setMother(item.mother);setFather(item.father);setDate(item.born);
+    open('litter');setEditingVersion(item.version);setEditingId(item.id);setName(item.name);setMother(item.mother);setFather(item.father);setDate(item.born);
   }
   function editPuppy(item: Puppy) {
-    open('puppy',item.id);setEditingId(item.id);setName(item.name);
+    open('puppy',item.id);setEditingVersion(item.version);setEditingId(item.id);setName(item.name);
   }
   function editWeight(item: Weight) {
-    open('weight',item.puppyId);setEditingId(item.id);setDate(item.date);
+    open('weight',item.puppyId);setEditingVersion(item.version);setEditingId(item.id);setDate(item.date);
     setOriginalWeight(item);setWeightDirty(false);
     const next=weightInput(item.grams,'oz');setWeight(next.ounces);
   }
@@ -105,28 +79,35 @@ export default function App() {
     await run(async () => {
       if(form==='litter') {
         const values={name,mother,father,born:date};
-        if(editingId) await updateLitter(records,{...values,id:editingId});
+        if(editingId) await updateLitter(records,{...values,id:editingId,version:editingVersion});
         else await addLitter(records,values);
       } else if(form==='puppy' && litter) {
         const values={litterId:litter.id,name};
-        if(editingId) await updatePuppy(records,{...values,id:editingId});
+        if(editingId) await updatePuppy(records,{...values,id:editingId,version:editingVersion});
         else await addPuppy(records,values);
       } else if(form==='weight' && puppy && litter) {
         const values={puppyId:puppy.id,date,grams:originalWeight && !weightDirty ? originalWeight.grams : weightToGrams(weight,weightUnit==='lb'?pounds:undefined)};
-        if(editingId) await updateWeight(records,{...values,id:editingId});
+        if(editingId) await updateWeight(records,{...values,id:editingId,version:editingVersion});
         else await saveWeight(records,values);
       } else throw new Error('Choose a litter and puppy first.');
       // Close before refreshing so a failed refresh cannot invite a duplicate submission.
       setForm(null);setNotice('Saved.');await refresh();
     });
   }
-  const authenticated = !supabase || !!session;
+  const authenticated = !supabase || hasAccess;
   return <SafeAreaView style={s.safe}><StatusBar style="dark"/><KeyboardAvoidingView style={{flex:1}} behavior={Platform.OS==='ios'?'padding':undefined}><ScrollView ref={scroll} contentContainerStyle={s.page} keyboardShouldPersistTaps="handled">
-    <View style={s.header}><View><Text style={s.brand}>myKennel <Text style={{color:'#769484'}}> / </Text> Nursery</Text><Text style={s.small}>A little care. Every day.</Text></View>{session && <Button label="Sign out" secondary disabled={busy} onPress={()=>void run(async()=>{const {error}=await supabase!.auth.signOut();if(error)throw error;setRecords(emptyRecords);setPassword('');})}/>}</View>
+    <View style={s.header}><View><Text style={s.brand}>myKennel <Text style={{color:'#769484'}}> / </Text> Nursery</Text><Text style={s.small}>A little care. Every day.</Text></View>{session && <Button label="Leave kennel" secondary disabled={busy} onPress={()=>void run(async()=>{const {error}=await supabase!.auth.signOut();if(error)throw error;setAccessCode('');})}/>}</View>
     {!supabase && <View style={s.banner}><Text style={s.bannerTitle}>LOCAL PREVIEW</Text><Text style={s.body}>Saved only on this device. This preview has no staff login or shared backup. Connect Supabase before entering real kennel records.</Text></View>}
-    {!!error && <View accessibilityRole="alert" style={s.error}><Text style={{color:'#8e302b'}}>{error}</Text></View>}
+    {!!(error || syncError) && <View accessibilityRole="alert" style={s.error}><Text style={{color:'#8e302b'}}>{error || syncError}</Text></View>}
     {!!notice && <Text accessibilityLiveRegion="polite" style={s.success}>{notice}</Text>}
-    {!authReady ? <ActivityIndicator accessibilityLabel="Loading session"/> : !authenticated ? <View style={s.card}><Text style={s.title}>Welcome back</Text><Text style={s.body}>Sign in with your staff account to access the nursery.</Text><Field label="Email" value={email} onChangeText={setEmail}/><Field label="Password" value={password} onChangeText={setPassword} secure/><Button label={busy?'Signing in…':'Sign in'} disabled={busy} onPress={()=>void run(async()=>{const {error}=await supabase!.auth.signInWithPassword({email:email.trim(),password});if(error)throw error;setPassword('');})}/><Text style={s.small}>Ask your kennel administrator for an account. Public sign-up is disabled.</Text></View> : <>
+    {!authReady || (supabase && !!session && loading && !hasAccess) ? <ActivityIndicator accessibilityLabel="Connecting to kennel"/> : !authenticated ? <View style={s.card}>
+      <Text style={s.title}>Your shared kennel</Text><Text style={s.body}>Enter the same kennel code on each device. No personal account or password is needed. This device will remember its connection.</Text>
+      <Field label="Kennel code" value={accessCode} onChangeText={setAccessCode} secure/>
+      <Button label={busy?'Connecting…':'Connect to kennel'} disabled={busy} onPress={()=>void run(async()=>{await connect(accessCode);setAccessCode('');})}/>
+      <Button label="Retry connection" secondary disabled={busy} onPress={()=>void run(refresh)}/>
+    </View> : <>
+      {!!supabase && <Text accessibilityLiveRegion="polite" style={s.small}>{connection==='live'?'Live updates connected':connection==='connecting'?'Connecting live updates…':'Reconnecting live updates… Checking for changes automatically.'}{syncError?' Data may be out of date.':''}</Text>}
+
       <View style={s.heading}><View style={{flex:1}}><Text style={s.eyebrow}>THE NURSERY</Text><Text style={s.title}>{litter ? litter.name : 'Growing, together.'}</Text><Text style={s.body}>{litter ? `${litter.mother} × ${litter.father} · Born ${formatDate(litter.born)}` : 'Keep every litter and every little milestone in one place.'}</Text></View></View>
       <View style={s.toolbar}>{litter ? <Button label="← All litters" secondary disabled={busy} onPress={()=>{setSelected(null);setForm(null);setError('');}}/> : <Button label="+ Add litter" disabled={busy} onPress={()=>open('litter')}/>}<Button label="Refresh" secondary disabled={busy || loading} onPress={()=>void run(refresh)}/>{litter && <><Button label="Edit litter" secondary disabled={busy} onPress={()=>editLitter(litter)}/><Button label="+ Add puppy" disabled={busy} onPress={()=>open('puppy')}/></>}</View>
       {form && <View style={s.card}><Text style={s.subtitle}>{editingId ? (form==='litter'?'Edit litter':form==='puppy'?'Edit puppy':`Edit weight for ${puppy?.name ?? 'puppy'}`) : (form==='litter'?'New litter':form==='puppy'?'Meet the new arrival':`Weigh ${puppy?.name ?? 'puppy'}`)}</Text>

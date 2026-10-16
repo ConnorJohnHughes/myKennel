@@ -1,6 +1,6 @@
-export type Litter = { id: string; name: string; mother: string; father: string; born: string };
-export type Puppy = { id: string; litterId: string; name: string };
-export type Weight = { id: string; puppyId: string; date: string; grams: number };
+export type Litter = { id: string; version?: number; name: string; mother: string; father: string; born: string };
+export type Puppy = { id: string; version?: number; litterId: string; name: string };
+export type Weight = { id: string; version?: number; puppyId: string; date: string; grams: number };
 export type Records = { litters: Litter[]; puppies: Puppy[]; weights: Weight[] };
 export const emptyRecords: Records = { litters: [], puppies: [], weights: [] };
 export function today() {

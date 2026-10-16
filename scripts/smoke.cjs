@@ -21,7 +21,7 @@ async function pickDate(page,label,date) {
     const context = await browser.newContext({viewport:{width:390,height:844}});
     const page = await context.newPage();
     const errors=[];page.on('pageerror',e=>errors.push(e.message));
-    await page.goto('http://127.0.0.1:8080');
+    await page.goto(process.env.SMOKE_URL || 'http://127.0.0.1:8082');
     await page.getByRole('button',{name:'+ Add litter',exact:true}).click();
     await page.getByLabel('Litter name',{exact:true}).fill('Willow’s litter');
     await page.getByLabel('Mother (dam)',{exact:true}).fill('Willow');

@@ -1,0 +1,120 @@
+import React, { useEffect, useRef, useState } from 'react';
+import { ActivityIndicator, AppState, KeyboardAvoidingView, Platform, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { StatusBar } from 'expo-status-bar';
+import type { Session } from '@supabase/supabase-js';
+import { checkDate, displayWeight, emptyRecords, history, required, today, toGrams, type Records } from './src/domain';
+import { addLitter, addPuppy, loadRecords, saveWeight, supabase } from './src/storage';
+
+function Button({label,onPress,secondary=false,disabled=false}:{label:string;onPress:()=>void;secondary?:boolean;disabled?:boolean}) {
+  return <Pressable accessibilityRole="button" disabled={disabled} onPress={onPress} style={[s.button,secondary && s.secondary,disabled && {opacity:.45}]}><Text style={[s.buttonText,secondary && {color:'#244c40'}]}>{label}</Text></Pressable>;
+}
+function Field({label,value,onChangeText,placeholder,secure=false,numeric=false}:{label:string;value:string;onChangeText:(v:string)=>void;placeholder?:string;secure?:boolean;numeric?:boolean}) {
+  return <View style={s.field}><Text style={s.label}>{label}</Text><TextInput accessibilityLabel={label} style={s.input} value={value} onChangeText={onChangeText} placeholder={placeholder} placeholderTextColor="#7b8580" secureTextEntry={secure} keyboardType={numeric?'decimal-pad':'default'} autoCapitalize="none" autoCorrect={false}/></View>;
+}
+export default function App() {
+  const [records,setRecords] = useState<Records>(emptyRecords);
+  const [session,setSession] = useState<Session|null>(null);
+  const [authReady,setAuthReady] = useState(!supabase);
+  const [loading,setLoading] = useState(false);
+  const [busy,setBusy] = useState(false);
+  const [error,setError] = useState('');
+  const [notice,setNotice] = useState('');
+  const [selected,setSelected] = useState<string|null>(null);
+  const [form,setForm] = useState<'litter'|'puppy'|'weight'|null>(null);
+  const [puppyId,setPuppyId] = useState<string|null>(null);
+  const [unit,setUnit] = useState<'g'|'oz'>('g');
+  const [name,setName] = useState(''); const [mother,setMother] = useState(''); const [father,setFather] = useState('');
+  const [date,setDate] = useState(today()); const [weight,setWeight] = useState('');
+  const [email,setEmail] = useState(''); const [password,setPassword] = useState('');
+  const lock = useRef(false);
+  const account = useRef<string|null>(null);
+  const litter = records.litters.find(l => l.id === selected);
+  const puppies = records.puppies.filter(p => p.litterId === selected);
+  const puppy = records.puppies.find(p => p.id === puppyId);
+
+  useEffect(() => {
+    if (!supabase) return;
+    supabase.auth.getSession().then(({data,error}) => {
+      if(error) setError(error.message);
+      setSession(data.session);setAuthReady(true);
+    }).catch(e => {setError(String(e));setAuthReady(true);});
+    const {data} = supabase.auth.onAuthStateChange((_event,next) => {setSession(next);setAuthReady(true);});
+    const listener = AppState.addEventListener('change',state => {
+      if(state === 'active') supabase!.auth.startAutoRefresh(); else supabase!.auth.stopAutoRefresh();
+    });
+    if(AppState.currentState === 'active') supabase.auth.startAutoRefresh();
+    return () => {data.subscription.unsubscribe();listener.remove();supabase!.auth.stopAutoRefresh();};
+  },[]);
+  useEffect(() => {
+    account.current = session?.user.id ?? null;
+    setRecords(emptyRecords);setSelected(null);setForm(null);
+    if(supabase && !session) return;
+    let active = true;
+    setLoading(true);
+    loadRecords().then(data => {if(active)setRecords(data);}).catch(e => {if(active)setError(e.message || String(e));}).finally(() => {if(active)setLoading(false);});
+    return () => {active=false;};
+  },[session?.user.id]);
+
+  async function run(action:()=>Promise<void>) {
+    if(lock.current) return;
+    lock.current=true;setBusy(true);setError('');setNotice('');
+    try {await action();} catch(e:any) {setError(e.message || 'Unable to save. Please try again.');}
+    finally {lock.current=false;setBusy(false);}
+  }
+  async function refresh() {
+    const owner = account.current;
+    const data = await loadRecords();
+    if(owner === account.current) setRecords(data);
+  }
+  function open(kind:'litter'|'puppy'|'weight',id?:string) {
+    setForm(kind);setName('');setMother('');setFather('');setDate(today());setWeight('');setError('');setNotice('');setPuppyId(id ?? null);
+  }
+  async function submit() {
+    await run(async () => {
+      if(form==='litter') {
+        checkDate(date);
+        await addLitter(records,{name:required(name,'Litter name'),mother:required(mother,'Mother'),father:required(father,'Father'),born:date});
+      } else if(form==='puppy' && litter) {
+        const clean = required(name,'Puppy name or identifier');
+        if(puppies.some(p => p.name.toLowerCase()===clean.toLowerCase())) throw new Error('That identifier is already used in this litter.');
+        await addPuppy(records,{litterId:litter.id,name:clean});
+      } else if(form==='weight' && puppy && litter) {
+        checkDate(date,litter.born);
+        await saveWeight(records,{puppyId:puppy.id,date,grams:toGrams(weight,unit)});
+      } else throw new Error('Choose a litter and puppy first.');
+      // Close before refreshing so a failed refresh cannot invite a duplicate submission.
+      setForm(null);setNotice('Saved.');await refresh();
+    });
+  }
+  const authenticated = !supabase || !!session;
+  return <SafeAreaView style={s.safe}><StatusBar style="dark"/><KeyboardAvoidingView style={{flex:1}} behavior={Platform.OS==='ios'?'padding':undefined}><ScrollView contentContainerStyle={s.page} keyboardShouldPersistTaps="handled">
+    <View style={s.header}><View><Text style={s.brand}>myKennel <Text style={{color:'#769484'}}> / </Text> Nursery</Text><Text style={s.small}>A little care. Every day.</Text></View>{session && <Button label="Sign out" secondary disabled={busy} onPress={()=>void run(async()=>{const {error}=await supabase!.auth.signOut();if(error)throw error;setRecords(emptyRecords);setPassword('');})}/>}</View>
+    {!supabase && <View style={s.banner}><Text style={s.bannerTitle}>LOCAL PREVIEW</Text><Text style={s.body}>Saved only on this device. This preview has no staff login or shared backup. Connect Supabase before entering real kennel records.</Text></View>}
+    {!!error && <View accessibilityRole="alert" style={s.error}><Text style={{color:'#8e302b'}}>{error}</Text></View>}
+    {!!notice && <Text accessibilityLiveRegion="polite" style={s.success}>{notice}</Text>}
+    {!authReady ? <ActivityIndicator accessibilityLabel="Loading session"/> : !authenticated ? <View style={s.card}><Text style={s.title}>Welcome back</Text><Text style={s.body}>Sign in with your staff account to access the nursery.</Text><Field label="Email" value={email} onChangeText={setEmail}/><Field label="Password" value={password} onChangeText={setPassword} secure/><Button label={busy?'Signing in…':'Sign in'} disabled={busy} onPress={()=>void run(async()=>{const {error}=await supabase!.auth.signInWithPassword({email:email.trim(),password});if(error)throw error;setPassword('');})}/><Text style={s.small}>Ask your kennel administrator for an account. Public sign-up is disabled.</Text></View> : <>
+      <View style={s.heading}><View style={{flex:1}}><Text style={s.eyebrow}>THE NURSERY</Text><Text style={s.title}>{litter ? litter.name : 'Growing, together.'}</Text><Text style={s.body}>{litter ? `${litter.mother} × ${litter.father} · Born ${litter.born}` : 'Keep every litter and every little milestone in one place.'}</Text></View></View>
+      <View style={s.toolbar}>{litter ? <Button label="← All litters" secondary disabled={busy} onPress={()=>{setSelected(null);setForm(null);setError('');}}/> : <Button label="+ Add litter" disabled={busy} onPress={()=>open('litter')}/>}<Button label="Refresh" secondary disabled={busy || loading} onPress={()=>void run(refresh)}/>{litter && <Button label="+ Add puppy" disabled={busy} onPress={()=>open('puppy')}/>}</View>
+      {form && <View style={s.card}><Text style={s.subtitle}>{form==='litter'?'New litter':form==='puppy'?'Meet the new arrival':`Weigh ${puppy?.name ?? 'puppy'}`}</Text>
+        {form!=='weight' && <Field label={form==='litter'?'Litter name':'Puppy name or identifier'} placeholder={form==='litter'?'e.g. Willow’s spring litter':'e.g. Blue collar or Daisy'} value={name} onChangeText={setName}/>}
+        {form==='litter' && <><Field label="Mother (dam)" value={mother} onChangeText={setMother} placeholder="Mother’s name"/><Field label="Father (sire)" value={father} onChangeText={setFather} placeholder="Father’s name"/></>}
+        {form!=='puppy' && <Field label={form==='litter'?'Birth date (YYYY-MM-DD)':'Weigh-in date (YYYY-MM-DD)'} value={date} onChangeText={setDate}/>}
+        {form==='weight' && <><View style={s.toolbar}><Button label="Grams (g)" secondary={unit!=='g'} onPress={()=>setUnit('g')}/><Button label="Ounces (oz)" secondary={unit!=='oz'} onPress={()=>setUnit('oz')}/></View><Field label={`Weight (${unit})`} value={weight} onChangeText={setWeight} numeric/><Text style={s.small}>One entry per puppy per day. Previous entries are kept.</Text></>}
+        <View style={s.toolbar}><Button label={busy?'Saving…':'Save'} disabled={busy} onPress={()=>void submit()}/><Button label="Cancel" secondary disabled={busy} onPress={()=>setForm(null)}/></View>
+      </View>}
+      {loading ? <ActivityIndicator accessibilityLabel="Loading nursery"/> : !litter ? <>
+        <View style={s.stats}><View><Text style={s.stat}>{records.litters.length}</Text><Text style={s.small}>Litters</Text></View><View><Text style={s.stat}>{records.puppies.length}</Text><Text style={s.small}>Puppies</Text></View><View><Text style={s.stat}>{records.weights.filter(w=>w.date===today()).length}</Text><Text style={s.small}>Weighed today</Text></View></View>
+        {!records.litters.length && <View style={s.empty}><Text style={s.subtitle}>Room for your first litter</Text><Text style={s.body}>Add the parents and birth date, then give each puppy a name or collar identifier.</Text></View>}
+        {[...records.litters].sort((a,b)=>b.born.localeCompare(a.born)).map(l=><Pressable accessibilityRole="button" accessibilityLabel={`Open ${l.name}`} key={l.id} style={s.card} onPress={()=>{setSelected(l.id);setForm(null);}}><Text style={s.eyebrow}>BORN {l.born}</Text><Text style={s.subtitle}>{l.name}  →</Text><Text style={s.body}>{l.mother} × {l.father}</Text><Text style={s.small}>{records.puppies.filter(p=>p.litterId===l.id).length} puppies</Text></Pressable>)}
+      </> : <>
+        <View style={s.toolbar}><Text style={s.eyebrow}>PUPPIES · {puppies.length}</Text><Button label={unit==='g'?'Show ounces':'Show grams'} secondary onPress={()=>setUnit(unit==='g'?'oz':'g')}/></View>
+        {!puppies.length && <View style={s.empty}><Text style={s.subtitle}>Who’s in the litter?</Text><Text style={s.body}>Add each puppy by name or collar identifier to start tracking daily weights.</Text></View>}
+        {puppies.map(p=>{const entries=history(records,p.id);const latest=entries[0];return <View style={s.card} key={p.id}><View style={s.heading}><View style={{flex:1}}><Text style={s.subtitle}>{p.name}</Text><Text style={s.small}>{entries.some(w=>w.date===today())?'✓ Weighed today':'No weight logged today'}</Text></View><Button label="+ Weight" disabled={busy} onPress={()=>open('weight',p.id)}/></View>{latest && <Text style={s.latest}>{displayWeight(latest.grams,unit)} <Text style={s.small}>on {latest.date}</Text></Text>}{!entries.length && <Text style={s.body}>The first weigh-in starts their story.</Text>}{entries.map((w,i)=>{const previous=entries[i+1];const change=previous?w.grams-previous.grams:null;return <View key={w.id} style={s.history}><Text style={s.body}>{w.date}</Text><Text style={s.historyWeight}>{displayWeight(w.grams,unit)}</Text><Text style={[s.delta,{color:change!==null&&change<0?'#a33c31':'#547864'}]}>{change===null?'First entry':`${change!>0?'+':''}${displayWeight(change!,unit)}`}</Text></View>;})}{entries.length>1 && <Text style={s.small}>Change is from the previous recorded weigh-in.</Text>}</View>;})}
+      </>}
+    </>}
+    <Text style={s.footer}>myKennel · Made for the everyday care that matters.</Text>
+  </ScrollView></KeyboardAvoidingView></SafeAreaView>;
+}
+const s=StyleSheet.create({
+  safe:{flex:1,backgroundColor:'#f6f5ef'},page:{padding:24,paddingTop:Platform.OS==='android'?48:24,maxWidth:850,width:'100%',alignSelf:'center',gap:20,paddingBottom:60},header:{flexDirection:'row',justifyContent:'space-between',alignItems:'center',gap:12,flexWrap:'wrap',paddingBottom:16,borderBottomWidth:1,borderColor:'#dce2d8'},brand:{fontSize:23,fontWeight:'700',color:'#244c40'},small:{fontSize:13,color:'#69766e',lineHeight:20},banner:{backgroundColor:'#e9eee0',padding:16,borderRadius:12,gap:5},bannerTitle:{fontSize:11,fontWeight:'800',letterSpacing:2,color:'#526347'},body:{fontSize:15,color:'#59695f',lineHeight:23},title:{fontSize:34,fontWeight:'700',color:'#244c40',letterSpacing:-1,marginVertical:8},eyebrow:{fontSize:11,fontWeight:'800',letterSpacing:2,color:'#6f826a'},subtitle:{fontSize:21,fontWeight:'600',color:'#244c40',marginBottom:6},heading:{flexDirection:'row',alignItems:'center',gap:12,flexWrap:'wrap'},toolbar:{flexDirection:'row',alignItems:'center',gap:10,flexWrap:'wrap'},button:{backgroundColor:'#285845',borderRadius:10,paddingVertical:13,paddingHorizontal:18,alignItems:'center',minHeight:46},secondary:{backgroundColor:'#e7ecdf'},buttonText:{fontSize:14,color:'#fff',fontWeight:'600'},card:{backgroundColor:'#fffefb',borderWidth:1,borderColor:'#e0e5da',borderRadius:18,padding:22,gap:10},field:{gap:7,marginVertical:5},label:{fontSize:13,fontWeight:'600',color:'#3d5648'},input:{borderWidth:1,borderColor:'#cbd6c6',borderRadius:10,padding:14,fontSize:16,color:'#244c40',backgroundColor:'#fff',minHeight:48},stats:{flexDirection:'row',justifyContent:'space-around',paddingVertical:18,backgroundColor:'#e9eee3',borderRadius:16},stat:{fontSize:30,fontWeight:'600',color:'#285845'},empty:{padding:30,borderWidth:1,borderStyle:'dashed',borderColor:'#c3cebb',borderRadius:18,gap:8},error:{padding:16,backgroundColor:'#fce9e3',borderRadius:12},success:{color:'#285845',fontWeight:'600'},latest:{fontSize:26,color:'#285845',fontWeight:'600',marginVertical:8},history:{flexDirection:'row',gap:10,flexWrap:'wrap',borderTopWidth:1,borderColor:'#edf0e7',paddingTop:12,alignItems:'center'},historyWeight:{fontSize:15,fontWeight:'600',color:'#244c40',flex:1,textAlign:'right'},delta:{fontSize:12,minWidth:75,textAlign:'right'},footer:{fontSize:12,color:'#7e8a7f',textAlign:'center',marginTop:20},
+});

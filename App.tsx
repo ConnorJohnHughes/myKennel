@@ -6,8 +6,8 @@ import DateField from './src/DateField';
 import { formatDate, displayWeight, emptyRecords, history, today, weightToGrams, weightInput, type WeightUnit, type Records, type Litter, type Puppy, type Weight } from './src/domain';
 import { addLitter, addPuppy, loadRecords, saveWeight, updateLitter, updatePuppy, updateWeight, supabase } from './src/storage';
 
-function Button({label,onPress,secondary=false,disabled=false,accessibilityLabel}:{accessibilityLabel?:string;label:string;onPress:()=>void;secondary?:boolean;disabled?:boolean}) {
-  return <Pressable accessibilityRole="button" accessibilityLabel={accessibilityLabel} disabled={disabled} onPress={onPress} style={[s.button,secondary && s.secondary,disabled && {opacity:.45}]}><Text style={[s.buttonText,secondary && {color:'#244c40'}]}>{label}</Text></Pressable>;
+function Button({label,onPress,secondary=false,disabled=false,accessibilityLabel,expanded}:{expanded?:boolean;accessibilityLabel?:string;label:string;onPress:()=>void;secondary?:boolean;disabled?:boolean}) {
+  return <Pressable accessibilityRole="button" accessibilityLabel={accessibilityLabel} accessibilityState={{disabled,expanded}} aria-expanded={expanded} disabled={disabled} onPress={onPress} style={[s.button,secondary && s.secondary,disabled && {opacity:.45}]}><Text style={[s.buttonText,secondary && {color:'#244c40'}]}>{label}</Text></Pressable>;
 }
 function Field({label,value,onChangeText,placeholder,secure=false,numeric=false}:{label:string;value:string;onChangeText:(v:string)=>void;placeholder?:string;secure?:boolean;numeric?:boolean}) {
   return <View style={s.field}><Text style={s.label}>{label}</Text><TextInput accessibilityLabel={label} style={s.input} value={value} onChangeText={onChangeText} placeholder={placeholder} placeholderTextColor="#7b8580" secureTextEntry={secure} keyboardType={numeric?'decimal-pad':'default'} autoCapitalize="none" autoCorrect={false}/></View>;
@@ -20,6 +20,7 @@ export default function App() {
   const [busy,setBusy] = useState(false);
   const [error,setError] = useState('');
   const [notice,setNotice] = useState('');
+  const [expandedHistories,setExpandedHistories] = useState<Record<string,boolean>>({});
   const [selected,setSelected] = useState<string|null>(null);
   const [form,setForm] = useState<'litter'|'puppy'|'weight'|null>(null);
   const [editingId,setEditingId] = useState<string|null>(null);
@@ -60,6 +61,8 @@ export default function App() {
     loadRecords().then(data => {if(active)setRecords(data);}).catch(e => {if(active)setError(e.message || String(e));}).finally(() => {if(active)setLoading(false);});
     return () => {active=false;};
   },[session?.user.id]);
+
+  useEffect(()=>{setExpandedHistories({});},[selected,session?.user.id]);
 
   async function run(action:()=>Promise<void>) {
     if(lock.current) return;
@@ -150,7 +153,7 @@ export default function App() {
       </> : <>
         <View style={s.toolbar}><Text style={s.eyebrow}>PUPPIES · {puppies.length}</Text></View>
         {!puppies.length && <View style={s.empty}><Text style={s.subtitle}>Who’s in the litter?</Text><Text style={s.body}>Add each puppy by name or collar identifier to start tracking daily weights.</Text></View>}
-        {puppies.map(p=>{const entries=history(records,p.id);const latest=entries[0];return <View style={s.card} key={p.id}><View style={s.heading}><View style={{flexGrow:1,flexBasis:180}}><Text style={s.subtitle}>{p.name}</Text><Text style={s.small}>{entries.some(w=>w.date===today())?'✓ Weighed today':'No weight logged today'}</Text></View><Button label="Edit puppy" accessibilityLabel={`Edit ${p.name}`} secondary disabled={busy} onPress={()=>editPuppy(p)}/><Button label="+ Weight" disabled={busy} onPress={()=>open('weight',p.id)}/></View>{latest && <Text style={s.latest}>{displayWeight(latest.grams)} <Text style={s.small}>on {formatDate(latest.date)}</Text></Text>}{!entries.length && <Text style={s.body}>The first weigh-in starts their story.</Text>}{entries.map((w,i)=>{const previous=entries[i+1];const change=previous?w.grams-previous.grams:null;return <View key={w.id} style={s.history}><Text style={s.body}>{formatDate(w.date)}</Text><Text style={s.historyWeight}>{displayWeight(w.grams)}</Text><Text style={[s.delta,{color:change!==null&&change<0?'#a33c31':'#547864'}]}>{change===null?'First entry':`${change!>0?'+':''}${displayWeight(change!)}`}</Text><Button label="Edit" accessibilityLabel={`Edit weight for ${p.name} on ${formatDate(w.date)}`} secondary disabled={busy} onPress={()=>editWeight(w)}/></View>;})}{entries.length>1 && <Text style={s.small}>Change is from the previous recorded weigh-in.</Text>}</View>;})}
+        {puppies.map(p=>{const entries=history(records,p.id);const latest=entries[0];const expanded=!!expandedHistories[p.id];const visibleEntries=expanded?entries:entries.slice(0,3);return <View style={s.card} key={p.id}><View style={s.heading}><View style={{flexGrow:1,flexBasis:180}}><Text style={s.subtitle}>{p.name}</Text><Text style={s.small}>{entries.some(w=>w.date===today())?'✓ Weighed today':'No weight logged today'}</Text></View><Button label="Edit puppy" accessibilityLabel={`Edit ${p.name}`} secondary disabled={busy} onPress={()=>editPuppy(p)}/><Button label="+ Weight" disabled={busy} onPress={()=>open('weight',p.id)}/></View>{latest && <Text style={s.latest}>{displayWeight(latest.grams)} <Text style={s.small}>on {formatDate(latest.date)}</Text></Text>}{!entries.length && <Text style={s.body}>The first weigh-in starts their story.</Text>}{visibleEntries.map((w,i)=>{const previous=entries[i+1];const change=previous?w.grams-previous.grams:null;return <View key={w.id} style={s.history}><Text style={s.body}>{formatDate(w.date)}</Text><Text style={s.historyWeight}>{displayWeight(w.grams)}</Text><Text style={[s.delta,{color:change!==null&&change<0?'#a33c31':'#547864'}]}>{change===null?'First entry':`${change!>0?'+':''}${displayWeight(change!)}`}</Text><Button label="Edit" accessibilityLabel={`Edit weight for ${p.name} on ${formatDate(w.date)}`} secondary disabled={busy} onPress={()=>editWeight(w)}/></View>;})}{entries.length>1 && <Text style={s.small}>Change is from the previous recorded weigh-in.</Text>}{entries.length>3 && <Button label={expanded?'Show recent 3':`View all weights (${entries.length})`} accessibilityLabel={expanded?`Show recent 3 weights for ${p.name}`:`View all weights for ${p.name}`} expanded={expanded} secondary disabled={busy} onPress={()=>setExpandedHistories(current=>({...current,[p.id]:!current[p.id]}))}/>}</View>;})}
       </>}
     </>}
     <Text style={s.footer}>myKennel · Made for the everyday care that matters.</Text>

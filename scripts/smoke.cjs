@@ -132,6 +132,7 @@ async function pickDate(page,label,date) {
     await page.getByRole('button',{name:'Edit weight for Daisy on 06JAN20',exact:true}).waitFor();
     await page.getByText('1 lb 14.34 oz',{exact:true}).waitFor();
     assert.equal(await page.evaluate(()=>JSON.parse(localStorage.getItem('mykennel-preview-v1')).weights.length),3);
+    assert.equal(await page.getByRole('button',{name:'View all weights for Daisy',exact:true}).count(),0);
     assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth > window.innerWidth),false);
     await page.screenshot({path:'/tmp/mykennel-mobile.png',fullPage:true});
     await page.getByRole('button',{name:'Edit litter',exact:true}).click();
@@ -152,7 +153,44 @@ async function pickDate(page,label,date) {
     await page.getByRole('button',{name:'Cancel date selection',exact:true}).click();
     await page.getByRole('button',{name:'Cancel',exact:true}).click();
 
+    // Long histories collapse independently and older records remain editable.
+    await page.setViewportSize({width:390,height:844});
+    await page.evaluate(()=>{
+      const data=JSON.parse(localStorage.getItem('mykennel-preview-v1'));
+      const daisy=data.puppies[0];
+      for (const [day,oz] of [[2,14],[3,16],[4,18]]) data.weights.push({id:`extra-${day}`,puppyId:daisy.id,date:`2020-01-0${day}`,grams:Math.round(oz*28.349523125*1000)/1000});
+      data.puppies.push({id:'sibling',litterId:daisy.litterId,name:'Bramble'});
+      for(let day=1;day<=4;day++) data.weights.push({id:`sibling-${day}`,puppyId:'sibling',date:`2020-01-0${day}`,grams:Math.round((day+9)*28.349523125*1000)/1000});
+      localStorage.setItem('mykennel-preview-v1',JSON.stringify(data));
+    });
+    await page.reload();
+    await page.getByRole('button',{name:'Open Hazel’s litter',exact:true}).click();
+    await page.getByRole('button',{name:'Edit weight for Daisy on 06JAN20',exact:true}).waitFor();
+    assert.equal(await page.getByRole('button',{name:/^Edit weight for Daisy on/}).count(),3);
+    assert.equal(await page.getByRole('button',{name:'Edit weight for Daisy on 01JAN20',exact:true}).count(),0);
+    assert.equal(await page.getByRole('button',{name:/^Edit weight for Bramble on/}).count(),3);
+    await page.getByRole('button',{name:'View all weights for Daisy',exact:true}).click();
+    assert.equal(await page.getByRole('button',{name:/^Edit weight for Daisy on/}).count(),6);
+    assert.equal(await page.getByRole('button',{name:/^Edit weight for Bramble on/}).count(),3);
+    assert.equal(await page.getByRole('button',{name:'Show recent 3 weights for Daisy',exact:true}).getAttribute('aria-expanded'),'true');
+    await page.getByRole('button',{name:'Edit weight for Daisy on 02JAN20',exact:true}).click();
+    await pickDate(page,'Weigh-in date','2020-01-07');
+    await page.getByRole('button',{name:'Save changes',exact:true}).click();
+    await page.getByRole('button',{name:'Edit weight for Daisy on 07JAN20',exact:true}).waitFor();
+    await page.getByRole('button',{name:'Show recent 3 weights for Daisy',exact:true}).click();
+    assert.equal(await page.getByRole('button',{name:/^Edit weight for Daisy on/}).count(),3);
+    assert.equal(await page.getByRole('button',{name:'Edit weight for Daisy on 07JAN20',exact:true}).count(),1);
+    assert.equal(await page.getByRole('button',{name:'Edit weight for Daisy on 04JAN20',exact:true}).count(),0);
+    await page.getByText('-6.18 oz',{exact:true}).waitFor(); // Third row still compares with the hidden fourth.
+    await page.getByRole('button',{name:'View all weights for Bramble',exact:true}).click();
+    assert.equal(await page.getByRole('button',{name:/^Edit weight for Bramble on/}).count(),4);
+    assert.equal(await page.getByRole('button',{name:/^Edit weight for Daisy on/}).count(),3);
+    await page.getByRole('button',{name:'← All litters',exact:true}).click();
+    await page.getByRole('button',{name:'Open Hazel’s litter',exact:true}).click();
+    assert.equal(await page.getByRole('button',{name:/^Edit weight for Bramble on/}).count(),3);
+    assert.equal(await page.evaluate(()=>JSON.parse(localStorage.getItem('mykennel-preview-v1')).weights.length),10);
+    await page.screenshot({path:'/tmp/mykennel-recent-weights.png',fullPage:true});
     assert.deepEqual(errors,[]);
-    console.log('PASS: mobile viewport, litter and puppy creation, daily weights, gain, duplicate rejection, automatic pounds/ounces display, both input modes, remainder validation, reload persistence, litter/parent/birth corrections, puppy rename, weight/date corrections, cancellation, precision preservation, calendar navigation and cancellation, disabled out-of-range dates, DDMMMYY display, no browser errors.');
+    console.log('PASS: mobile viewport, litter and puppy creation, daily weights, gain, duplicate rejection, automatic pounds/ounces display, both input modes, remainder validation, reload persistence, litter/parent/birth corrections, puppy rename, weight/date corrections, cancellation, precision preservation, calendar navigation and cancellation, disabled out-of-range dates, DDMMMYY display, recent-three history, independent expansion/collapse, hidden-row gains, older-entry corrections, no browser errors.');
   } finally {await browser.close();}
 })().catch(e=>{console.error(e);process.exitCode=1;});

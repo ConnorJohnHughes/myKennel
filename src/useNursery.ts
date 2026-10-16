@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { AppState } from 'react-native';
+import { AppState, Platform } from 'react-native';
 import type { Session } from '@supabase/supabase-js';
 import { emptyRecords, type Records } from './domain';
 import { joinKennel, loadRecords, supabase } from './storage';
+import { subscribeToBrowserRecovery } from './browserRecovery';
 import { createRefreshQueue } from './refreshQueue';
 
 export function useNursery() {
@@ -63,11 +64,11 @@ export function useNursery() {
     const listener=AppState.addEventListener('change',state=>{if(state==='active')request();});
     const interval=supabase?setInterval(request,20000):undefined;
     const reconnect=()=>request();
-    if(typeof window!=='undefined'){window.addEventListener('online',reconnect);window.addEventListener('focus',reconnect);}
+    const stopBrowserRecovery=subscribeToBrowserRecovery(Platform.OS,typeof window==='undefined'?undefined:window,reconnect);
     return ()=>{
       active=false;queue.dispose();refreshRef.current=async()=>{};listener.remove();
       if(interval)clearInterval(interval);
-      if(typeof window!=='undefined'){window.removeEventListener('online',reconnect);window.removeEventListener('focus',reconnect);}
+      stopBrowserRecovery();
       if(channel)void supabase!.removeChannel(channel);
     };
   },[session?.user.id,attempt]);

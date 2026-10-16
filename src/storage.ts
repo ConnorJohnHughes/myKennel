@@ -1,13 +1,13 @@
 import 'react-native-url-polyfill/auto';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { createClient, processLock } from '@supabase/supabase-js';
+import { createClient } from '@supabase/supabase-js';
 import { publicProject } from './projectConfig';
 import { emptyRecords, validateLitter, validatePuppy, validateWeight, replaceRecord, type Litter, type Puppy, type Records, type Weight } from './domain';
 
 const url = process.env.EXPO_PUBLIC_SUPABASE_URL || publicProject.url;
 const key = process.env.EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY || publicProject.publishableKey;
 export const supabase = process.env.EXPO_PUBLIC_LOCAL_PREVIEW !== 'true' && url && key ? createClient(url, key, {
-  auth: { storage: AsyncStorage, autoRefreshToken: true, persistSession: true, detectSessionInUrl: false, lock: processLock },
+  auth: { storage: AsyncStorage, autoRefreshToken: true, persistSession: true, detectSessionInUrl: false },
 }) : null;
 const localKey = 'mykennel-preview-v1';
 export async function loadRecords(): Promise<Records> {

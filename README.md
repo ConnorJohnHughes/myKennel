@@ -11,9 +11,23 @@ npm ci
 npm start
 ```
 
-Open with a compatible Expo Go client on Android or iPhone; `npm run web` runs the browser version. A physical phone must be able to reach the development machine. Cloud containers may not be reachable from a phone without additional networking. Native signed builds and App Store / Play Store publication are separate steps.
+This project targets **Expo SDK 57** to match Expo Go supporting SDK 57. Open with a compatible Expo Go client on Android or iPhone; `npm run web` runs the browser version. A physical phone must be able to reach the development machine. Cloud containers may not be reachable from a phone without additional networking. Native signed builds and App Store / Play Store publication are separate steps.
 
 Without Supabase configuration, the app starts in **local preview** mode. Records persist on this device/browser using AsyncStorage. There is no login, sharing, remote backup, or migration from preview into Supabase. Do not use preview for real kennel data. Setting both Supabase variables switches to cloud mode and hides the separate preview records.
+
+## Updating your local copy / Expo Go version mismatch
+
+Stop the existing Expo server with Ctrl+C, then run these commands inside `myKennel`:
+
+```sh
+git pull --ff-only origin main
+npm ci
+npx expo start --clear
+```
+
+Scan the new QR code with Expo Go on the same Wi-Fi. `npm ci` installs the versions from the updated lockfile. Expo Go and the project must support the same SDK major version; updating Expo Go alone does not change the project SDK. This repository currently targets SDK 57, with matching React, React Native, and Expo packages. If the phone reports a different supported SDK, use that exact error to diagnose the mismatch rather than repeatedly reinstalling Expo Go.
+
+For physical iOS devices, if Expo Go requests sign-in, run `npx expo login` on your computer and sign into the same Expo account in Expo Go. Native phone behavior still needs to be verified on a real device.
 
 ## Connect shared staff data
 

@@ -3,6 +3,7 @@ import { ActivityIndicator, KeyboardAvoidingView, Platform, Pressable, ScrollVie
 import { SafeAreaProvider, SafeAreaView, initialWindowMetrics } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import { useNursery } from './src/useNursery';
+import WebAppControls from './src/WebAppControls';
 import DateField from './src/DateField';
 import { formatDate, displayWeight, history, today, weightToGrams, weightInput, type WeightUnit, type Litter, type Puppy, type Weight } from './src/domain';
 import { addLitter, addPuppy, saveWeight, updateLitter, updatePuppy, updateWeight, supabase } from './src/storage';
@@ -101,6 +102,7 @@ function NurseryApp() {
   const authenticated = !supabase || hasAccess;
   return <SafeAreaView style={s.safe}><StatusBar style="dark"/><KeyboardAvoidingView style={{flex:1}} behavior={Platform.OS==='ios'?'padding':undefined}><ScrollView ref={scroll} contentContainerStyle={s.page} keyboardShouldPersistTaps="handled">
     <View style={s.header}><View><Text style={s.brand}>myKennel <Text style={{color:'#769484'}}> / </Text> Nursery</Text><Text style={s.small}>A little care. Every day.</Text></View>{session && <Button label="Leave kennel" secondary disabled={busy} onPress={()=>void run(async()=>{const {error}=await supabase!.auth.signOut();if(error)throw error;setAccessCode('');})}/>}</View>
+    <WebAppControls editing={busy || form!==null}/>
     {!supabase && <View style={s.banner}><Text style={s.bannerTitle}>LOCAL PREVIEW</Text><Text style={s.body}>Saved only on this device. This preview has no staff login or shared backup. Connect Supabase before entering real kennel records.</Text></View>}
     {!!(error || syncError) && <View accessibilityRole="alert" style={s.error}><Text style={{color:'#8e302b'}}>{error || syncError}</Text></View>}
     {!!notice && <Text accessibilityLiveRegion="polite" style={s.success}>{notice}</Text>}

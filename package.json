@@ -27,7 +27,8 @@
     "web": "expo start --web",
     "typecheck": "tsc --noEmit",
     "test": "node --experimental-strip-types --test tests/*.test.ts",
-    "test:db": "node scripts/check-db.cjs"
+    "test:db": "node scripts/check-db.cjs",
+    "build:web": "node scripts/build-web.cjs"
   },
   "private": true,
   "type": "module"

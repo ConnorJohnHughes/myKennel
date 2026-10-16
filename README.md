@@ -2,6 +2,10 @@
 
 A staff nursery app built with Expo / React Native for Android, iPhone, and web. Track litters, parents, birth dates, puppy names or collar identifiers, and daily weights in ounces or pounds plus ounces. Each puppy has a chronological weight history with change from the previous recorded weigh-in.
 
+## Install on phones and publish updates
+
+See [HOSTING.md](HOSTING.md) for the one-time Cloudflare Pages connection, phone installation, and automatic deployments from GitHub. Use `npm run build:web` for hosting: it produces an installable web app with icons and safe update prompts. Existing Supabase records remain shared.
+
 ## Run locally
 
 Use Node 24 LTS and npm. From this checkout:
@@ -51,7 +55,7 @@ Existing projects must use the migrations described in the setup guide instead o
 - Use **Edit litter** to correct the litter name, parents, or birth date; **Edit puppy** to rename an identifier; and **Edit** beside a weigh-in to correct its date or weight. Forms open with saved values. **Cancel** leaves the original unchanged. Puppy history stays attached after renaming.
 - Weight edits open in total ounces, and switching to pounds + ounces converts the fields. Editing only the date or switching modes retains the original stored weight, including older records with more precision than the displayed hundredth of an ounce. Changing a weight field uses the entered amount.
 - Duplicate daily entries remain blocked on edits, and a birth-date correction cannot move birth after an existing weigh-in. Correct incompatible weigh-in dates before moving birth forward. Deletion is not included. Staff edits replace the current values; stale same-record saves are rejected rather than silently overwriting another device’s edit. An audit history and automatic field-by-field merging are not implemented.
-- No health diagnosis, alerts, customer access, breeding pedigree, or store deployment is included.
+- No health diagnosis, alerts, customer access, breeding pedigree, or App Store / Play Store publication is included. The web app supports home-screen installation; Cloudflare activation is a separate dashboard step described in HOSTING.md.
 
 ## Validation
 
@@ -59,6 +63,7 @@ Existing projects must use the migrations described in the setup guide instead o
 npm run typecheck
 npm test
 npm run test:db
+npm run build:web
 npx expo export --platform all
 ```
 
@@ -83,5 +88,7 @@ node scripts/shared-smoke.cjs
 ```
 
 `SMOKE_URL` and `SHARED_SMOKE_URL` can override test server addresses. The transport test intercepts all project HTTP/WebSocket requests and does not use real kennel records or a real kennel code. Verify actual cross-device behavior against your project after the dashboard steps are complete.
+
+`node scripts/pwa-smoke.cjs` checks the installable production build using a real service worker and two simulated releases. Run it after `npm run build:web`. See HOSTING.md for the checks and their limits.
 
 Cloud onboarding uses the existing isolated checkout in `/workspace/myKennel`; no extra Git worktree is needed. Installation state can be retained, but Expo/server processes must be started in each new session.

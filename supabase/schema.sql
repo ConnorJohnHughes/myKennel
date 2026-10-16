@@ -1,4 +1,4 @@
--- Run once in a new Supabase project's SQL editor. Staff have read/add access only.
+-- Run once in a new Supabase project's SQL editor. Staff have read/add/edit access.
 begin;
 create table public.staff (
   user_id uuid primary key references auth.users(id) on delete cascade
@@ -30,10 +30,16 @@ create table public.weights (
   created_at timestamptz not null default now(),
   unique (puppy_id, date)
 );
-create function public.validate_weigh_in_birth() returns trigger language plpgsql
+create or replace function public.validate_weigh_in_birth() returns trigger language plpgsql
   set search_path = '' as $$
+declare
+  birth_date date;
 begin
-  if new.date < (select l.born from public.litters l join public.puppies p on p.litter_id = l.id where p.id = new.puppy_id) then
+  -- Serialize weigh-ins and birth-date corrections for the same litter.
+  select l.born into birth_date from public.litters l
+    join public.puppies p on p.litter_id = l.id where p.id = new.puppy_id
+    for update of l;
+  if new.date < birth_date then
     raise exception 'A weigh-in cannot be before the litter birth date';
   end if;
   return new;
@@ -60,4 +66,36 @@ create policy "Staff add weights" on public.weights for insert to authenticated
 revoke all on public.staff, public.litters, public.puppies, public.weights from anon, authenticated;
 grant select on public.staff to authenticated;
 grant select, insert on public.litters, public.puppies, public.weights to authenticated;
+
+-- Staff corrections (also supplied separately for existing projects).
+create or replace function public.validate_litter_birth_edit() returns trigger language plpgsql
+  set search_path = '' as $$
+begin
+  if exists (select 1 from public.weights w join public.puppies p on p.id=w.puppy_id
+    where p.litter_id=new.id and w.date < new.born) then
+    raise exception 'Birth date cannot be after an existing weigh-in. Correct the weigh-in first.';
+  end if;
+  return new;
+end;
+$$;
+drop trigger if exists check_litter_birth_edit on public.litters;
+create trigger check_litter_birth_edit before update of born on public.litters
+  for each row execute function public.validate_litter_birth_edit();
+
+drop policy if exists "Staff edit litters" on public.litters;
+create policy "Staff edit litters" on public.litters for update to authenticated
+  using (exists (select 1 from public.staff where user_id = (select auth.uid())))
+  with check (exists (select 1 from public.staff where user_id = (select auth.uid())));
+drop policy if exists "Staff edit puppies" on public.puppies;
+create policy "Staff edit puppies" on public.puppies for update to authenticated
+  using (exists (select 1 from public.staff where user_id = (select auth.uid())))
+  with check (exists (select 1 from public.staff where user_id = (select auth.uid())));
+drop policy if exists "Staff edit weights" on public.weights;
+create policy "Staff edit weights" on public.weights for update to authenticated
+  using (exists (select 1 from public.staff where user_id = (select auth.uid())))
+  with check (exists (select 1 from public.staff where user_id = (select auth.uid())));
+-- Only editable fields: clients cannot change IDs, relationships, or staff membership.
+grant update (name,mother,father,born) on public.litters to authenticated;
+grant update (name) on public.puppies to authenticated;
+grant update (date,grams) on public.weights to authenticated;
 commit;

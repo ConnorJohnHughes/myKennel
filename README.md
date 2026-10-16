@@ -40,11 +40,15 @@ For physical iOS devices, if Expo Go requests sign-in, run `npx expo login` on y
    insert into public.staff (user_id) values ('STAFF-USER-UUID');
    ```
 
-   Only explicitly listed users may read/add records. All staff share the nursery. Clients cannot grant membership, update or delete records. To revoke a staff member's data access, delete their membership using the administrator dashboard. Use the dashboard for password recovery/account administration in this first version.
+   Only explicitly listed users may read/add/edit records. All staff share the nursery. Clients cannot grant membership, delete records, or change record IDs/relationships. To revoke a staff member's data access, delete their membership using the administrator dashboard. Use the dashboard for password recovery/account administration in this first version.
 5. Copy `.env.example` to `.env.local` and set the project's URL and **publishable/public key** from Project Settings → API. Never use a `service_role` key in a client app. `EXPO_PUBLIC_` values are bundled into the application; the key is intentionally public and the database policies enforce access. Restart Expo after configuration changes. If outbound access is restricted, allow your exact project hostname (`PROJECT.supabase.co`).
 6. Sign in with a staff account. Verify a litter, puppy, and weight created on one device appear after Refresh on another. Cloud mode requires connectivity; it does not queue offline writes or automatically subscribe to other staff members' changes. Use Refresh to retrieve current records.
 
-Before using real records, verify in the connected project: signed-out requests cannot read/add records; a signed-in nonstaff account cannot read/add records; a listed staff account can read/add; duplicate daily entries and weights before birth are rejected. The schema is provided but has not been executed against a hosted Supabase project in this workspace.
+Before using real records, verify in the connected project: signed-out requests cannot read/add records; a signed-in nonstaff account cannot read/add records; a listed staff account can read/add/edit; duplicate daily entries and weights before birth are rejected. The schema is provided but has not been executed against a hosted Supabase project in this workspace.
+
+## Enable editing in an existing Supabase project
+
+If you already applied the original schema, run [supabase/migrations/20261016_allow_staff_edits.sql](supabase/migrations/20261016_allow_staff_edits.sql) in your Supabase SQL editor before using cloud edits. It preserves records, grants staff updates only to editable columns, and adds birth-date consistency checks. It is safe to rerun. Do **not** rerun the full schema on an existing database. New projects only need the current `schema.sql`, which already includes these rules. Local preview needs no migration and retains its existing records.
 
 ## Current behavior
 
@@ -52,7 +56,9 @@ Before using real records, verify in the connected project: signed-out requests 
 - Puppy identifiers are unique within each litter, ignoring case.
 - One positive weight per puppy per calendar day; backdated entries are supported from birth through today. Dates use `YYYY-MM-DD` and the device's local date. The server also rejects future dates according to its database clock.
 - Weights are stored in grams to three decimal places and displayed in grams or ounces. Changes compare adjacent recorded weigh-ins, which may be several days apart.
-- Saved records cannot be edited/deleted in this first version. An administrator must correct mistakes in Supabase. Duplicate entries are rejected rather than silently overwriting another staff member's work.
+- Use **Edit litter** to correct the litter name, parents, or birth date; **Edit puppy** to rename an identifier; and **Edit** beside a weigh-in to correct its date or weight. Forms open with saved values. **Cancel** leaves the original unchanged. Puppy history stays attached after renaming.
+- Weight edits open in grams at their full stored precision even when history is displayed in ounces. Switching input units converts the entered value.
+- Duplicate daily entries remain blocked on edits, and a birth-date correction cannot move birth after an existing weigh-in. Correct incompatible weigh-in dates before moving birth forward. Deletion is not included. Staff edits replace the current values; an audit history and simultaneous-edit conflict resolution are not implemented.
 - No health diagnosis, alerts, customer access, breeding pedigree, or store deployment is included.
 
 ## Validation
@@ -60,12 +66,13 @@ Before using real records, verify in the connected project: signed-out requests 
 ```sh
 npm run typecheck
 npm test
+npm run test:db
 npx expo export --platform all
 ```
 
-The five unit tests exercise calendar validation, birth-date bounds, weight conversion/validation, history ordering, and required identifiers. Android/iOS export validates JavaScript bundles; it does not replace native builds or device testing.
+The ten unit tests exercise calendar validation, birth-date bounds, weight conversion/validation, history ordering, required identifiers, edit uniqueness, and record identity preservation. `npm run test:db` runs the actual schema and repeatable upgrade migration over populated data in PGlite (isolated PostgreSQL WASM), checking staff edits, denied anonymous/nonstaff access, column restrictions, and date/weight/uniqueness constraints. It does not establish connectivity or authentication against a hosted Supabase project. Android/iOS export validates JavaScript bundles; it does not replace native builds or device testing.
 
-An additional browser smoke check creates a litter/puppy, records weights, checks gains and duplicate rejection, verifies ounce conversion and reload persistence, and checks a phone-sized viewport. It uses a fresh browser context and leaves no test records in your normal browser. With Playwright and Chromium available:
+An additional browser smoke check creates a litter/puppy, records weights, checks gains and duplicate rejection, verifies ounce conversion and reload persistence, corrects litter/parent/birth details, renames a puppy, edits weight dates and values, checks cancellation and decimal precision, and checks a phone-sized viewport. It uses a fresh browser context and leaves no test records in your normal browser. With Playwright and Chromium available:
 
 ```sh
 npx expo export --platform web

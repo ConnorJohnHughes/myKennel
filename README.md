@@ -1,6 +1,6 @@
 # myKennel
 
-A staff nursery app built with Expo / React Native for Android, iPhone, and web. Track litters, parents, birth dates, puppy names or collar identifiers, and daily weights in grams or ounces. Each puppy has a chronological weight history with change from the previous recorded weigh-in.
+A staff nursery app built with Expo / React Native for Android, iPhone, and web. Track litters, parents, birth dates, puppy names or collar identifiers, and daily weights in ounces or pounds plus ounces. Each puppy has a chronological weight history with change from the previous recorded weigh-in.
 
 ## Run locally
 
@@ -55,9 +55,11 @@ If you already applied the original schema, run [supabase/migrations/20261016_al
 - A litter has a label, mother's name, father's name, and birth date. Parents are text fields in this first version.
 - Puppy identifiers are unique within each litter, ignoring case.
 - One positive weight per puppy per calendar day; backdated entries are supported from birth through today. Dates use `YYYY-MM-DD` and the device's local date. The server also rejects future dates according to its database clock.
-- Weights are stored in grams to three decimal places and displayed in grams or ounces. Changes compare adjacent recorded weigh-ins, which may be several days apart.
+- Enter either total **ounces**, or whole **pounds + remaining ounces** (0–15.99 oz). Ounces accept up to two decimal places: for example, `1 lb 14.34 oz`.
+- Recorded weights automatically display ounces below a pound, and pounds plus ounces at or above a pound: `14.34 oz`, `1 lb 0 oz`, `1 lb 2 oz` for an 18 oz entry. Display precision is up to two decimal places; trailing zeros are omitted. Changes compare adjacent recorded weigh-ins, which may be several days apart.
+- Existing storage remains in grams internally for compatibility; there are no gram fields in the app and no new database migration is needed for the units change.
 - Use **Edit litter** to correct the litter name, parents, or birth date; **Edit puppy** to rename an identifier; and **Edit** beside a weigh-in to correct its date or weight. Forms open with saved values. **Cancel** leaves the original unchanged. Puppy history stays attached after renaming.
-- Weight edits open in grams at their full stored precision even when history is displayed in ounces. Switching input units converts the entered value.
+- Weight edits open in total ounces, and switching to pounds + ounces converts the fields. Editing only the date or switching modes retains the original stored weight, including older records with more precision than the displayed hundredth of an ounce. Changing a weight field uses the entered amount.
 - Duplicate daily entries remain blocked on edits, and a birth-date correction cannot move birth after an existing weigh-in. Correct incompatible weigh-in dates before moving birth forward. Deletion is not included. Staff edits replace the current values; an audit history and simultaneous-edit conflict resolution are not implemented.
 - No health diagnosis, alerts, customer access, breeding pedigree, or store deployment is included.
 
@@ -70,9 +72,9 @@ npm run test:db
 npx expo export --platform all
 ```
 
-The ten unit tests exercise calendar validation, birth-date bounds, weight conversion/validation, history ordering, required identifiers, edit uniqueness, and record identity preservation. `npm run test:db` runs the actual schema and repeatable upgrade migration over populated data in PGlite (isolated PostgreSQL WASM), checking staff edits, denied anonymous/nonstaff access, column restrictions, and date/weight/uniqueness constraints. It does not establish connectivity or authentication against a hosted Supabase project. Android/iOS export validates JavaScript bundles; it does not replace native builds or device testing.
+The unit tests exercise calendar validation, birth-date bounds, weight conversion/validation, history ordering, required identifiers, edit uniqueness, record identity preservation, pounds/ounces conversion, two-decimal validation, and rounding at pound boundaries. `npm run test:db` runs the actual schema and repeatable upgrade migration over populated data in PGlite (isolated PostgreSQL WASM), checking staff edits, denied anonymous/nonstaff access, column restrictions, and date/weight/uniqueness constraints. It does not establish connectivity or authentication against a hosted Supabase project. Android/iOS export validates JavaScript bundles; it does not replace native builds or device testing.
 
-An additional browser smoke check creates a litter/puppy, records weights, checks gains and duplicate rejection, verifies ounce conversion and reload persistence, corrects litter/parent/birth details, renames a puppy, edits weight dates and values, checks cancellation and decimal precision, and checks a phone-sized viewport. It uses a fresh browser context and leaves no test records in your normal browser. With Playwright and Chromium available:
+An additional browser smoke check creates a litter/puppy, records weights, checks gains and duplicate rejection, verifies ounce conversion and reload persistence, corrects litter/parent/birth details, renames a puppy, edits weight dates and values, checks cancellation, both imperial input modes, automatic display, remainder validation, and legacy record precision, and checks a phone-sized viewport. It uses a fresh browser context and leaves no test records in your normal browser. With Playwright and Chromium available:
 
 ```sh
 npx expo export --platform web

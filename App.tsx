@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, AppState, KeyboardAvoidingView, Platform, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import type { Session } from '@supabase/supabase-js';
-import { displayWeight, emptyRecords, history, today, toGrams, type Records, type Litter, type Puppy, type Weight } from './src/domain';
+import { displayWeight, emptyRecords, history, today, weightToGrams, weightInput, type WeightUnit, type Records, type Litter, type Puppy, type Weight } from './src/domain';
 import { addLitter, addPuppy, loadRecords, saveWeight, updateLitter, updatePuppy, updateWeight, supabase } from './src/storage';
 
 function Button({label,onPress,secondary=false,disabled=false,accessibilityLabel}:{accessibilityLabel?:string;label:string;onPress:()=>void;secondary?:boolean;disabled?:boolean}) {
@@ -22,10 +22,12 @@ export default function App() {
   const [selected,setSelected] = useState<string|null>(null);
   const [form,setForm] = useState<'litter'|'puppy'|'weight'|null>(null);
   const [editingId,setEditingId] = useState<string|null>(null);
-  const [weightUnit,setWeightUnit] = useState<'g'|'oz'>('g');
+  const [weightUnit,setWeightUnit] = useState<WeightUnit>('oz');
   const scroll = useRef<ScrollView>(null);
   const [puppyId,setPuppyId] = useState<string|null>(null);
-  const [unit,setUnit] = useState<'g'|'oz'>('g');
+  const [pounds,setPounds] = useState('');
+  const [originalWeight,setOriginalWeight] = useState<Weight|null>(null);
+  const [weightDirty,setWeightDirty] = useState(false);
   const [name,setName] = useState(''); const [mother,setMother] = useState(''); const [father,setFather] = useState('');
   const [date,setDate] = useState(today()); const [weight,setWeight] = useState('');
   const [email,setEmail] = useState(''); const [password,setPassword] = useState('');
@@ -70,7 +72,7 @@ export default function App() {
     if(owner === account.current) setRecords(data);
   }
   function open(kind:'litter'|'puppy'|'weight',id?:string) {
-    setEditingId(null);setWeightUnit(unit);
+    setEditingId(null);setWeightUnit('oz');setPounds('');setOriginalWeight(null);setWeightDirty(false);
     setForm(kind);setName('');setMother('');setFather('');setDate(today());setWeight('');setError('');setNotice('');setPuppyId(id ?? null);
     requestAnimationFrame(()=>scroll.current?.scrollTo({y:0,animated:true}));
   }
@@ -82,15 +84,17 @@ export default function App() {
   }
   function editWeight(item: Weight) {
     open('weight',item.puppyId);setEditingId(item.id);setDate(item.date);
-    // Use the stored grams without display rounding so editing a date cannot change its weight.
-    setWeightUnit('g');setWeight(String(item.grams));
+    setOriginalWeight(item);setWeightDirty(false);
+    const next=weightInput(item.grams,'oz');setWeight(next.ounces);
   }
-  function changeWeightUnit(next: 'g'|'oz') {
+  function changeWeightUnit(next: WeightUnit) {
     if(next===weightUnit) return;
-    if(weight.trim()) {
-      try { const grams=toGrams(weight,weightUnit);setWeight((grams/(next==='oz'?28.349523125:1)).toFixed(8).replace(/\.?0+$/,'')); }
-      catch(e:any) {setError(e.message);return;}
-    }
+    if(weight.trim() || pounds.trim()) {
+      try {
+        const grams=originalWeight && !weightDirty ? originalWeight.grams : weightToGrams(weight,weightUnit==='lb'?pounds:undefined);
+        const fields=weightInput(grams,next);setWeight(fields.ounces);setPounds(fields.pounds);
+      } catch(e:any) {setError(e.message);return;}
+    } else setPounds('');
     setError('');setWeightUnit(next);
   }
   async function submit() {
@@ -104,7 +108,7 @@ export default function App() {
         if(editingId) await updatePuppy(records,{...values,id:editingId});
         else await addPuppy(records,values);
       } else if(form==='weight' && puppy && litter) {
-        const values={puppyId:puppy.id,date,grams:toGrams(weight,weightUnit)};
+        const values={puppyId:puppy.id,date,grams:originalWeight && !weightDirty ? originalWeight.grams : weightToGrams(weight,weightUnit==='lb'?pounds:undefined)};
         if(editingId) await updateWeight(records,{...values,id:editingId});
         else await saveWeight(records,values);
       } else throw new Error('Choose a litter and puppy first.');
@@ -125,7 +129,17 @@ export default function App() {
         {form!=='weight' && <Field label={form==='litter'?'Litter name':'Puppy name or identifier'} placeholder={form==='litter'?'e.g. Willow’s spring litter':'e.g. Blue collar or Daisy'} value={name} onChangeText={setName}/>}
         {form==='litter' && <><Field label="Mother (dam)" value={mother} onChangeText={setMother} placeholder="Mother’s name"/><Field label="Father (sire)" value={father} onChangeText={setFather} placeholder="Father’s name"/></>}
         {form!=='puppy' && <Field label={form==='litter'?'Birth date (YYYY-MM-DD)':'Weigh-in date (YYYY-MM-DD)'} value={date} onChangeText={setDate}/>}
-        {form==='weight' && <><View style={s.toolbar}><Button label="Grams (g)" secondary={weightUnit!=='g'} disabled={busy} onPress={()=>changeWeightUnit('g')}/><Button label="Ounces (oz)" secondary={weightUnit!=='oz'} disabled={busy} onPress={()=>changeWeightUnit('oz')}/></View><Field label={`Weight (${weightUnit})`} value={weight} onChangeText={setWeight} numeric/><Text style={s.small}>One entry per puppy per day. Editing corrects the selected entry.</Text></>}
+        {form==='weight' && <>
+          <View style={s.toolbar}>
+            <Button label="Ounces (oz)" secondary={weightUnit!=='oz'} disabled={busy} onPress={()=>changeWeightUnit('oz')}/>
+            <Button label="Pounds + ounces" secondary={weightUnit!=='lb'} disabled={busy} onPress={()=>changeWeightUnit('lb')}/>
+          </View>
+          {weightUnit==='lb' && <Field label="Pounds (lb)" value={pounds} onChangeText={value=>{setPounds(value);setWeightDirty(true);}} placeholder="e.g. 1" numeric/>}
+          <Field label={weightUnit==='lb'?'Remaining ounces (oz)':'Weight (oz)'} value={weight} onChangeText={value=>{setWeight(value);setWeightDirty(true);}} placeholder={weightUnit==='lb'?'e.g. 14.34':'e.g. 18.00'} numeric/>
+          <Text style={s.small}>{weightUnit==='lb'?'Enter whole pounds and 0–15.99 ounces.':'Enter total ounces, with up to two decimal places.'} Recorded weights automatically show pounds and ounces from 16 oz.</Text>
+          <Text style={s.small}>One entry per puppy per day. Editing corrects the selected entry.</Text>
+        </>}
+
         <View style={s.toolbar}><Button label={busy?'Saving…':editingId?'Save changes':'Save'} disabled={busy} onPress={()=>void submit()}/><Button label="Cancel" secondary disabled={busy} onPress={()=>setForm(null)}/></View>
       </View>}
       {loading ? <ActivityIndicator accessibilityLabel="Loading nursery"/> : !litter ? <>
@@ -133,9 +147,9 @@ export default function App() {
         {!records.litters.length && <View style={s.empty}><Text style={s.subtitle}>Room for your first litter</Text><Text style={s.body}>Add the parents and birth date, then give each puppy a name or collar identifier.</Text></View>}
         {[...records.litters].sort((a,b)=>b.born.localeCompare(a.born)).map(l=><Pressable accessibilityRole="button" accessibilityLabel={`Open ${l.name}`} key={l.id} style={s.card} onPress={()=>{setSelected(l.id);setForm(null);}}><Text style={s.eyebrow}>BORN {l.born}</Text><Text style={s.subtitle}>{l.name}  →</Text><Text style={s.body}>{l.mother} × {l.father}</Text><Text style={s.small}>{records.puppies.filter(p=>p.litterId===l.id).length} puppies</Text></Pressable>)}
       </> : <>
-        <View style={s.toolbar}><Text style={s.eyebrow}>PUPPIES · {puppies.length}</Text><Button label={unit==='g'?'Show ounces':'Show grams'} secondary onPress={()=>setUnit(unit==='g'?'oz':'g')}/></View>
+        <View style={s.toolbar}><Text style={s.eyebrow}>PUPPIES · {puppies.length}</Text></View>
         {!puppies.length && <View style={s.empty}><Text style={s.subtitle}>Who’s in the litter?</Text><Text style={s.body}>Add each puppy by name or collar identifier to start tracking daily weights.</Text></View>}
-        {puppies.map(p=>{const entries=history(records,p.id);const latest=entries[0];return <View style={s.card} key={p.id}><View style={s.heading}><View style={{flexGrow:1,flexBasis:180}}><Text style={s.subtitle}>{p.name}</Text><Text style={s.small}>{entries.some(w=>w.date===today())?'✓ Weighed today':'No weight logged today'}</Text></View><Button label="Edit puppy" accessibilityLabel={`Edit ${p.name}`} secondary disabled={busy} onPress={()=>editPuppy(p)}/><Button label="+ Weight" disabled={busy} onPress={()=>open('weight',p.id)}/></View>{latest && <Text style={s.latest}>{displayWeight(latest.grams,unit)} <Text style={s.small}>on {latest.date}</Text></Text>}{!entries.length && <Text style={s.body}>The first weigh-in starts their story.</Text>}{entries.map((w,i)=>{const previous=entries[i+1];const change=previous?w.grams-previous.grams:null;return <View key={w.id} style={s.history}><Text style={s.body}>{w.date}</Text><Text style={s.historyWeight}>{displayWeight(w.grams,unit)}</Text><Text style={[s.delta,{color:change!==null&&change<0?'#a33c31':'#547864'}]}>{change===null?'First entry':`${change!>0?'+':''}${displayWeight(change!,unit)}`}</Text><Button label="Edit" accessibilityLabel={`Edit weight for ${p.name} on ${w.date}`} secondary disabled={busy} onPress={()=>editWeight(w)}/></View>;})}{entries.length>1 && <Text style={s.small}>Change is from the previous recorded weigh-in.</Text>}</View>;})}
+        {puppies.map(p=>{const entries=history(records,p.id);const latest=entries[0];return <View style={s.card} key={p.id}><View style={s.heading}><View style={{flexGrow:1,flexBasis:180}}><Text style={s.subtitle}>{p.name}</Text><Text style={s.small}>{entries.some(w=>w.date===today())?'✓ Weighed today':'No weight logged today'}</Text></View><Button label="Edit puppy" accessibilityLabel={`Edit ${p.name}`} secondary disabled={busy} onPress={()=>editPuppy(p)}/><Button label="+ Weight" disabled={busy} onPress={()=>open('weight',p.id)}/></View>{latest && <Text style={s.latest}>{displayWeight(latest.grams)} <Text style={s.small}>on {latest.date}</Text></Text>}{!entries.length && <Text style={s.body}>The first weigh-in starts their story.</Text>}{entries.map((w,i)=>{const previous=entries[i+1];const change=previous?w.grams-previous.grams:null;return <View key={w.id} style={s.history}><Text style={s.body}>{w.date}</Text><Text style={s.historyWeight}>{displayWeight(w.grams)}</Text><Text style={[s.delta,{color:change!==null&&change<0?'#a33c31':'#547864'}]}>{change===null?'First entry':`${change!>0?'+':''}${displayWeight(change!)}`}</Text><Button label="Edit" accessibilityLabel={`Edit weight for ${p.name} on ${w.date}`} secondary disabled={busy} onPress={()=>editWeight(w)}/></View>;})}{entries.length>1 && <Text style={s.small}>Change is from the previous recorded weigh-in.</Text>}</View>;})}
       </>}
     </>}
     <Text style={s.footer}>myKennel · Made for the everyday care that matters.</Text>

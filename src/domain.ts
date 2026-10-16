@@ -17,16 +17,36 @@ export function checkDate(date: string, born?: string) {
   if (date > today()) throw new Error('The date cannot be in the future.');
   if (born && date < born) throw new Error('A weigh-in cannot be before the litter’s birth date.');
 }
-export function toGrams(value: string, unit: 'g' | 'oz') {
-  if (!/^\d+(\.\d+)?$/.test(value.trim())) throw new Error('Enter a positive weight, such as 325 or 11.5.');
-  const n = Number(value) * (unit === 'oz' ? 28.349523125 : 1);
-  if (!Number.isFinite(n) || n <= 0 || n > 100000) throw new Error('Weight must be above zero and at most 100,000 grams.');
-  const rounded = Math.round(n * 1000) / 1000;
-  if (rounded <= 0) throw new Error('Weight must be at least 0.001 grams.');
+export const GRAMS_PER_OUNCE = 28.349523125;
+export type WeightUnit = 'oz' | 'lb';
+function storedGrams(grams: number) {
+  if (!Number.isFinite(grams) || grams <= 0 || grams > 100000) throw new Error('Enter a positive weight within the supported range.');
+  const rounded = Math.round(grams * 1000) / 1000;
+  if (rounded <= 0) throw new Error('Enter a weight greater than zero.');
   return rounded;
 }
-export function displayWeight(grams: number, unit: 'g' | 'oz') {
-  return `${Number((grams / (unit === 'oz' ? 28.349523125 : 1)).toFixed(2))} ${unit}`;
+export function weightToGrams(ounces: string, pounds?: string) {
+  const oz = ounces.trim();
+  const lb = pounds?.trim();
+  if (!oz && !lb) throw new Error('Enter a weight greater than zero.');
+  if (oz && !/^\d+(?:\.\d{1,2})?$/.test(oz)) throw new Error('Enter ounces with up to two decimal places, such as 14.34.');
+  if (lb && !/^\d+$/.test(lb)) throw new Error('Enter whole pounds; use the ounces field for the remaining weight.');
+  if (pounds !== undefined && Number(oz) >= 16) throw new Error('Remaining ounces must be less than 16. Add another pound or use ounces only.');
+  return storedGrams(((Number(lb || 0) * 16) + Number(oz || 0)) * GRAMS_PER_OUNCE);
+}
+function ounceParts(grams: number) {
+  // Round once before splitting so 15.999 oz never becomes “0 lb 16 oz”.
+  const hundredths = Math.round(Math.abs(grams) / GRAMS_PER_OUNCE * 100);
+  return {hundredths,pounds:Math.floor(hundredths / 1600),ounces:(hundredths % 1600) / 100};
+}
+export function displayWeight(grams: number) {
+  const {hundredths,pounds,ounces} = ounceParts(grams);
+  const sign = grams < 0 && hundredths > 0 ? '-' : '';
+  return pounds ? `${sign}${pounds} lb ${ounces} oz` : `${sign}${ounces} oz`;
+}
+export function weightInput(grams: number, unit: WeightUnit) {
+  const {hundredths,pounds,ounces} = ounceParts(grams);
+  return {pounds:unit==='lb'?String(pounds):'',ounces:(unit==='lb'?ounces:hundredths/100).toFixed(2)};
 }
 export function history(records: Records, puppyId: string) {
   return records.weights.filter(w => w.puppyId === puppyId).sort((a,b) => b.date.localeCompare(a.date));
@@ -58,7 +78,7 @@ export function validateWeight(records: Records, weight: Omit<Weight,'id'>, edit
   const litter=records.litters.find(l=>l.id===puppy?.litterId);
   if (!litter) throw new Error('Puppy or litter no longer exists. Refresh and try again.');
   checkDate(weight.date,litter.born);
-  const validated={...weight,grams:toGrams(String(weight.grams),'g')};
+  const validated={...weight,grams:storedGrams(weight.grams)};
   if (records.weights.some(w=>w.id!==editingId && w.puppyId===weight.puppyId && w.date===weight.date)) throw new Error('This puppy already has a weight for that date.');
   return validated;
 }

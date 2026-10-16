@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { checkDate, validDate, weightToGrams, displayWeight, weightInput, GRAMS_PER_OUNCE, history, required, validateLitter, validatePuppy, validateWeight, replaceRecord } from '../src/domain.ts';
+import { checkDate, validDate, formatDate, weightToGrams, displayWeight, weightInput, GRAMS_PER_OUNCE, history, required, validateLitter, validatePuppy, validateWeight, replaceRecord } from '../src/domain.ts';
 test('calendar dates reject rollover and invalid formatting', () => {
   assert.equal(validDate('2024-02-29'), true);
   for (const d of ['2025-02-29','2026-04-31','2026-2-01','invalid']) assert.equal(validDate(d), false);
@@ -90,3 +90,13 @@ function editingRecords() {
     weights:[{id:'w1',puppyId:'a',date:'2020-01-01',grams:300},{id:'w2',puppyId:'a',date:'2020-01-02',grams:320}],
   };
 }
+
+test('dates display as DDMMMYY independently of timezone and with padded days', () => {
+  assert.equal(formatDate('2026-10-15'),'15OCT26');
+  assert.equal(formatDate('2020-01-01'),'01JAN20');
+  assert.equal(formatDate('2019-12-31'),'31DEC19');
+  assert.equal(formatDate('2024-02-29'),'29FEB24');
+  const months=['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'];
+  for (let m=1;m<=12;m++) assert.equal(formatDate(`2026-${String(m).padStart(2,'0')}-09`),`09${months[m-1]}26`);
+  assert.equal(formatDate('2025-02-29'),'Choose date');
+});

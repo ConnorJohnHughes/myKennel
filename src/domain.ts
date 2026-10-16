@@ -12,8 +12,13 @@ export function validDate(value: string) {
   const d = new Date(value + 'T12:00:00Z');
   return Number.isFinite(d.getTime()) && d.toISOString().slice(0,10) === value;
 }
+export function formatDate(value: string) {
+  if (!validDate(value)) return 'Choose date';
+  const months=['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'];
+  return `${value.slice(8,10)}${months[Number(value.slice(5,7))-1]}${value.slice(2,4)}`;
+}
 export function checkDate(date: string, born?: string) {
-  if (!validDate(date)) throw new Error('Enter a valid date as YYYY-MM-DD.');
+  if (!validDate(date)) throw new Error('Choose a valid date.');
   if (date > today()) throw new Error('The date cannot be in the future.');
   if (born && date < born) throw new Error('A weigh-in cannot be before the litter’s birth date.');
 }

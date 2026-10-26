@@ -43,3 +43,7 @@ yarn-error.*
 .env
 
 /dist-preview/
+
+# Private, locally generated push keys and cron secret
+.heat-reminders.env
+.heat-reminders-schedule.sql

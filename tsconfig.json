@@ -7,5 +7,9 @@
       "node",
       "react"
     ]
-  }
+  },
+  "exclude": [
+    "node_modules",
+    "supabase/functions/heat-reminders"
+  ]
 }

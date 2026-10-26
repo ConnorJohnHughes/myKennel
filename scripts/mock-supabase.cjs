@@ -3,8 +3,8 @@ const {randomUUID}=require('node:crypto');
 module.exports=function createMockSupabase(){
 const api='https://wnwdiyqlpaltndseqfxo.supabase.co';
 const code='test-only-shared-kennel-code-123456789';
-const records={litters:[],puppies:[],weights:[]};
-const members=new Set();const sockets=new Set();
+const records={litters:[],puppies:[],weights:[],heat_dogs:[],heat_cycles:[],heat_push_subscriptions:[]};
+const members=new Set();const sockets=new Set();let pushReady=false;let pushKey='';const pushTests=[];
 function jwt(id){return [Buffer.from(JSON.stringify({alg:'HS256',typ:'JWT'})).toString('base64url'),Buffer.from(JSON.stringify({sub:id,aud:'authenticated',role:'authenticated',iat:Math.floor(Date.now()/1000),exp:Math.floor(Date.now()/1000)+3600,iss:api+'/auth/v1'})).toString('base64url'),'test-signature'].join('.');}
 function identity(token){try{return JSON.parse(Buffer.from(token.split('.')[1],'base64url').toString()).sub;}catch{return null;}}
 function emit(table,event,row){
@@ -27,11 +27,31 @@ async function transport(context){
       if(!id||req.postDataJSON().access_code!==code)return reply({message:'That kennel code is incorrect',code:'P0001'},400);
       members.add(id);return reply(null);
     }
+    if(url.pathname==='/rest/v1/rpc/get_heat_push_config')return reply({ready:pushReady,publicKey:pushKey});
+    if(url.pathname==='/rest/v1/rpc/add_heat_dog'){
+      if(!members.has(id))return reply({message:'Access denied'},403);
+      const values=req.postDataJSON();
+      if(records.heat_dogs.some(d=>d.name.toLowerCase()===values.dog_name.toLowerCase()))return reply({message:'Dog already exists'},409);
+      const dog={id:randomUUID(),name:values.dog_name,version:1};const cycle={id:randomUUID(),dog_id:dog.id,detected:values.detected_date,version:1};
+      records.heat_dogs.push(dog);records.heat_cycles.push(cycle);emit('heat_dogs','INSERT',dog);emit('heat_cycles','INSERT',cycle);return reply(dog.id);
+    }
+    if(url.pathname==='/rest/v1/rpc/register_heat_push'){
+      if(!members.has(id))return reply({message:'Access denied'},403);
+      const value=req.postDataJSON();let row=records.heat_push_subscriptions.find(s=>s.endpoint===value.push_endpoint);
+      if(!row){row={id:randomUUID(),endpoint:value.push_endpoint,p256dh:value.push_p256dh,auth:value.push_auth,user_id:id,timezone:value.device_timezone,enabled:true};records.heat_push_subscriptions.push(row);}else row.enabled=true;
+      return reply(row.id);
+    }
+    if(url.pathname==='/rest/v1/rpc/disable_heat_push'){
+      const row=records.heat_push_subscriptions.find(s=>s.endpoint===req.postDataJSON().push_endpoint&&s.user_id===id);if(row)row.enabled=false;return reply(null);
+    }
+    if(url.pathname==='/functions/v1/heat-reminders'){
+      if(!members.has(id))return reply({message:'Access denied'},403);pushTests.push(req.postDataJSON());return reply({sent:true});
+    }
     const table=url.pathname.split('/').pop();
     if(table==='staff')return reply(id&&members.has(id)?[{user_id:id}]:[]);
     if(!records[table])return reply({message:'Unmocked endpoint'},404);
     if(!members.has(id))return reply({message:'Access denied'},403);
-    if(method==='GET')return reply(records[table]);
+    if(method==='GET')return reply(table==='heat_push_subscriptions'?(records[table].find(r=>r.user_id===id&&(!url.searchParams.get('endpoint')||r.endpoint===url.searchParams.get('endpoint').slice(3)))||null):records[table]);
     if(method==='POST'){
       const row={...req.postDataJSON(),id:randomUUID(),version:1};
       if(table==='weights'&&records.weights.some(w=>w.puppy_id===row.puppy_id&&w.date===row.date))return reply({message:'duplicate daily weight',code:'23505'},409);
@@ -61,5 +81,5 @@ async function transport(context){
   });
 }
 
-return {records,members,sockets,code,transport,emit};
+return {records,members,sockets,code,transport,emit,pushTests,configurePush:key=>{pushReady=true;pushKey=key;}};
 };

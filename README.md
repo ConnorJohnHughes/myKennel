@@ -2,6 +2,12 @@
 
 A staff nursery app built with Expo / React Native for Android, iPhone, and web. Track litters, parents, birth dates, puppy names or collar identifiers, and daily weights in ounces or pounds plus ounces. Each puppy has a chronological weight history with change from the previous recorded weigh-in.
 
+## R2GD heat-cycle tracking
+
+The shared kennel is branded **Rust to Gold Dust Bullies (R2GD)**, with **Litters** and **Heat cycles** tabs. Record each female dog's detected heat dates with the existing calendar selector and `DDMMMYY` format. The latest actual date drives a six-calendar-month estimate; history and corrections are preserved. Existing litter/weight data is unchanged.
+
+Follow [HEAT_REMINDERS_SETUP.md](HEAT_REMINDERS_SETUP.md) for the additive live database migration and one-time phone push service setup. Reminders are first-of-month, seven days before, and the estimated day, around 9 am in each opted-in phone's saved timezone. Phone notifications need a deployed scheduled service and permission on each device; the app clearly distinguishes unconfigured/disabled reminders.
+
 ## Install on phones and publish updates
 
 See [HOSTING.md](HOSTING.md) for the one-time Cloudflare Pages connection, phone installation, and automatic deployments from GitHub. Use `npm run build:web` for hosting: it produces an installable web app with icons and safe update prompts. Existing Supabase records remain shared.
@@ -55,7 +61,7 @@ Existing projects must use the migrations described in the setup guide instead o
 - Use **Edit litter** to correct the litter name, parents, or birth date; **Edit puppy** to rename an identifier; and **Edit** beside a weigh-in to correct its date or weight. Forms open with saved values. **Cancel** leaves the original unchanged. Puppy history stays attached after renaming.
 - Weight edits open in total ounces, and switching to pounds + ounces converts the fields. Editing only the date or switching modes retains the original stored weight, including older records with more precision than the displayed hundredth of an ounce. Changing a weight field uses the entered amount.
 - Duplicate daily entries remain blocked on edits, and a birth-date correction cannot move birth after an existing weigh-in. Correct incompatible weigh-in dates before moving birth forward. Deletion is not included. Staff edits replace the current values; stale same-record saves are rejected rather than silently overwriting another device’s edit. An audit history and automatic field-by-field merging are not implemented.
-- No health diagnosis, alerts, customer access, breeding pedigree, or App Store / Play Store publication is included. The web app supports home-screen installation; Cloudflare activation is a separate dashboard step described in HOSTING.md.
+- No health diagnosis, customer access, breeding pedigree, or App Store / Play Store publication is included. Heat estimates are approximate; opt-in heat reminders require the server setup described above. The web app supports home-screen installation; Cloudflare activation is a separate dashboard step described in HOSTING.md.
 
 ## Validation
 

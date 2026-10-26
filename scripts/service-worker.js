@@ -41,3 +41,23 @@ self.addEventListener('fetch', event => {
     event.respondWith(caches.match(event.request).then(cached=>cached || fetch(event.request)));
   }
 });
+
+self.addEventListener('push', event => {
+  let payload={};try{payload=event.data?.json()||{};}catch{}
+  event.waitUntil(self.registration.showNotification('R2GD · Heat reminder',{
+    body:typeof payload.body==='string'?payload.body:'Open Heat cycles to check upcoming estimated heats.',
+    icon:'/icons/icon-192.png',badge:'/icons/icon-192.png',
+    tag:typeof payload.tag==='string'?payload.tag:'r2gd-heat-reminder',renotify:false,
+    data:{heatReminder:true},
+  }));
+});
+self.addEventListener('notificationclick', event => {
+  event.notification.close();
+  event.waitUntil((async()=>{
+    // Always use the app's own origin; never open a URL supplied by a push payload.
+    for(const client of await self.clients.matchAll({type:'window',includeUncontrolled:true})){
+      if(new URL(client.url).origin===self.location.origin){client.postMessage({type:'OPEN_HEAT_CYCLES'});await client.focus();return;}
+    }
+    await self.clients.openWindow('/?tab=heats');
+  })());
+});

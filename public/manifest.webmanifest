@@ -1,8 +1,8 @@
 {
   "id": "/",
-  "name": "myKennel Nursery",
-  "short_name": "myKennel",
-  "description": "Shared litter and puppy weight tracking for your kennel.",
+  "name": "Rust to Gold Dust Bullies",
+  "short_name": "R2GD",
+  "description": "Shared litter, puppy weight, and heat-cycle tracking for R2GD.",
   "lang": "en",
   "start_url": "/?source=homescreen",
   "scope": "/",
@@ -10,7 +10,17 @@
   "background_color": "#f6f5ef",
   "theme_color": "#285845",
   "icons": [
-    { "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },
-    { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+    {
+      "src": "/icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
   ]
 }

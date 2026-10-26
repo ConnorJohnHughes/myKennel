@@ -28,9 +28,10 @@ const server=http.createServer((req,res)=>{
   const base=`http://127.0.0.1:${server.address().port}`;
   const browser=await chromium.launch({executablePath:process.env.CHROMIUM_PATH||'/usr/bin/chromium',headless:true,args:['--no-sandbox']});
   try{
-    const context=await browser.newContext({viewport:{width:390,height:844}});
+    const context=await browser.newContext({viewport:{width:390,height:844},permissions:['notifications']});
     const fixture=createMockSupabase();await fixture.transport(context);
     const one=await context.newPage();const errors=[];one.on('pageerror',e=>errors.push(e.message));
+    const devtools=await context.newCDPSession(one);let registrations=[];devtools.on('ServiceWorker.workerRegistrationUpdated',event=>{registrations=event.registrations;});await devtools.send('ServiceWorker.enable');
     await one.goto(base);
     await one.getByRole('button',{name:'Install app',exact:true}).click();
     // In browsers without a prompt event, install guidance remains accessible.
@@ -67,7 +68,15 @@ const server=http.createServer((req,res)=>{
     assert.equal(await one.locator('meta[name="mykennel-release"]').getAttribute('content'),second);
     const cached=await one.evaluate(async()=>{const found=[];for(const name of await caches.keys())for(const request of await(await caches.open(name)).keys())found.push(request.url);return found;});
     assert.ok(cached.length>0);assert.ok(cached.some(url=>url===base+'/'));assert.equal(cached.some(url=>url===base+'/index.html'),false);assert.equal(cached.some(url=>url.includes('supabase.co')||url.includes('/auth/')||url.includes('/rest/')),false);
+    await context.setOffline(false);
+    const registration=registrations.find(value=>value.scopeURL===base+'/');assert.ok(registration);
+    await devtools.send('ServiceWorker.deliverPushMessage',{origin:base,registrationId:registration.registrationId,data:JSON.stringify({body:'Willow is estimated this month.',tag:'r2gd-browser-push-test'})});
+    await one.waitForFunction(async()=>{const reg=await navigator.serviceWorker.ready;return (await reg.getNotifications()).some(notification=>notification.body==='Willow is estimated this month.');});
+    const notifications=await one.evaluate(async()=>{const reg=await navigator.serviceWorker.ready;return (await reg.getNotifications()).map(n=>({title:n.title,tag:n.tag,data:n.data}));});
+    assert.ok(notifications.some(n=>n.title==='R2GD · Heat reminder'&&n.tag==='r2gd-browser-push-test'&&n.data.heatReminder));
+    await one.evaluate(()=>navigator.serviceWorker.dispatchEvent(new MessageEvent('message',{data:{type:'OPEN_HEAT_CYCLES'}})));
+    await one.getByText('Know what’s coming.',{exact:true}).waitFor();
     assert.deepEqual(errors,[]);
-    console.log('PASS: install manifest/icons/iOS metadata, real worker install/offline shell, two-release update, protected draft in a second tab, explicit updates per tab, and no cached Supabase data.');
+    console.log('PASS: install manifest/icons/iOS metadata, real worker install/offline shell, two-release update, protected draft in a second tab, explicit updates per tab, no cached Supabase data, real worker push-display handling, and heat-tab notification navigation.');
   }finally{await browser.close();server.close();}
 })().catch(e=>{console.error(e);server.close();process.exitCode=1;});

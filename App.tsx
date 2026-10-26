@@ -2,8 +2,11 @@ import React, { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaProvider, SafeAreaView, initialWindowMetrics } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
+import { useHeatTabNavigation } from './src/useHeatTabNavigation';
 import { useNursery } from './src/useNursery';
 import WebAppControls from './src/WebAppControls';
+import {disableHeatRemindersOnThisDevice} from './src/PhoneReminders';
+import HeatCycles from './src/HeatCycles';
 import DateField from './src/DateField';
 import { formatDate, displayWeight, history, today, weightToGrams, weightInput, type WeightUnit, type Litter, type Puppy, type Weight } from './src/domain';
 import { addLitter, addPuppy, saveWeight, updateLitter, updatePuppy, updateWeight, supabase } from './src/storage';
@@ -19,6 +22,8 @@ export default function App() {
 }
 function NurseryApp() {
   const {records,session,authReady,hasAccess,loading,connection,syncError,refresh,connect}=useNursery();
+  const [tab,setTab]=useState<'litters'|'heats'>('litters');
+  const [heatEditing,setHeatEditing]=useState(false);
   const [busy,setBusy] = useState(false);
   const [error,setError] = useState('');
   const [notice,setNotice] = useState('');
@@ -41,9 +46,10 @@ function NurseryApp() {
   const puppies = records.puppies.filter(p => p.litterId === selected);
   const puppy = records.puppies.find(p => p.id === puppyId);
 
-  useEffect(()=>{setSelected(null);setForm(null);setError('');},[session?.user.id]);
+  useEffect(()=>{setSelected(null);setForm(null);setTab('litters');setError('');},[session?.user.id]);
 
   useEffect(()=>{setExpandedHistories({});},[selected,session?.user.id]);
+  useHeatTabNavigation(!supabase||hasAccess,!!form||busy||heatEditing,()=>setTab('heats'));
 
   async function run(action:()=>Promise<void>) {
     if(lock.current) return;
@@ -101,8 +107,8 @@ function NurseryApp() {
   }
   const authenticated = !supabase || hasAccess;
   return <SafeAreaView style={s.safe}><StatusBar style="dark"/><KeyboardAvoidingView style={{flex:1}} behavior={Platform.OS==='ios'?'padding':undefined}><ScrollView ref={scroll} contentContainerStyle={s.page} keyboardShouldPersistTaps="handled">
-    <View style={s.header}><View><Text style={s.brand}>myKennel <Text style={{color:'#769484'}}> / </Text> Nursery</Text><Text style={s.small}>A little care. Every day.</Text></View>{session && <Button label="Leave kennel" secondary disabled={busy} onPress={()=>void run(async()=>{const {error}=await supabase!.auth.signOut();if(error)throw error;setAccessCode('');})}/>}</View>
-    <WebAppControls editing={busy || form!==null}/>
+    <View style={s.header}><View><Text style={s.brand}>myKennel <Text style={{color:'#769484'}}> / </Text> {authenticated?'R2GD':'Nursery'}</Text><Text style={s.small}>A little care. Every day.</Text></View>{session && <Button label="Leave kennel" secondary disabled={busy} onPress={()=>void run(async()=>{await disableHeatRemindersOnThisDevice();const {error}=await supabase!.auth.signOut();if(error)throw error;setAccessCode('');})}/>}</View>
+    <WebAppControls editing={busy || form!==null || heatEditing}/>
     {!supabase && <View style={s.banner}><Text style={s.bannerTitle}>LOCAL PREVIEW</Text><Text style={s.body}>Saved only on this device. This preview has no staff login or shared backup. Connect Supabase before entering real kennel records.</Text></View>}
     {!!(error || syncError) && <View accessibilityRole="alert" style={s.error}><Text style={{color:'#8e302b'}}>{error || syncError}</Text></View>}
     {!!notice && <Text accessibilityLiveRegion="polite" style={s.success}>{notice}</Text>}
@@ -114,7 +120,11 @@ function NurseryApp() {
     </View> : <>
       {!!supabase && <Text accessibilityLiveRegion="polite" style={s.small}>{connection==='live'?'Live updates connected':connection==='connecting'?'Connecting live updates…':'Reconnecting live updates… Checking for changes automatically.'}{syncError?' Data may be out of date.':''}</Text>}
 
-      <View style={s.heading}><View style={{flex:1}}><Text style={s.eyebrow}>THE NURSERY</Text><Text style={s.title}>{litter ? litter.name : 'Growing, together.'}</Text><Text style={s.body}>{litter ? `${litter.mother} × ${litter.father} · Born ${formatDate(litter.born)}` : 'Keep every litter and every little milestone in one place.'}</Text></View></View>
+      <View style={s.toolbar} accessibilityRole="tablist">
+        {(['litters','heats'] as const).map(value=><Pressable key={value} accessibilityRole="tab" accessibilityLabel={value==='litters'?'Litters':'Heat cycles'} aria-selected={tab===value} accessibilityState={{selected:tab===value,disabled:busy||!!form||heatEditing}} disabled={busy||!!form||heatEditing} onPress={()=>setTab(value)} style={[s.button,tab!==value&&s.secondary]}><Text style={[s.buttonText,tab!==value&&{color:'#244c40'}]}>{value==='litters'?'Litters':'Heat cycles'}</Text></Pressable>)}
+      </View>
+      {tab==='heats'?<HeatCycles onEditingChange={setHeatEditing} onFormOpen={()=>scroll.current?.scrollTo({y:0,animated:true})}/>:<>
+      <View style={s.heading}><View style={{flex:1}}><Text style={s.eyebrow}>R2GD · LITTERS</Text><Text style={s.title}>{litter ? litter.name : 'Rust to Gold Dust Bullies'}</Text><Text style={s.body}>{litter ? `${litter.mother} × ${litter.father} · Born ${formatDate(litter.born)}` : 'Keep every litter and every little milestone in one place.'}</Text></View></View>
       <View style={s.toolbar}>{litter ? <Button label="← All litters" secondary disabled={busy} onPress={()=>{setSelected(null);setForm(null);setError('');}}/> : <Button label="+ Add litter" disabled={busy} onPress={()=>open('litter')}/>}<Button label="Refresh" secondary disabled={busy || loading} onPress={()=>void run(refresh)}/>{litter && <><Button label="Edit litter" secondary disabled={busy} onPress={()=>editLitter(litter)}/><Button label="+ Add puppy" disabled={busy} onPress={()=>open('puppy')}/></>}</View>
       {form && <View style={s.card}><Text style={s.subtitle}>{editingId ? (form==='litter'?'Edit litter':form==='puppy'?'Edit puppy':`Edit weight for ${puppy?.name ?? 'puppy'}`) : (form==='litter'?'New litter':form==='puppy'?'Meet the new arrival':`Weigh ${puppy?.name ?? 'puppy'}`)}</Text>
         {form!=='weight' && <Field label={form==='litter'?'Litter name':'Puppy name or identifier'} placeholder={form==='litter'?'e.g. Willow’s spring litter':'e.g. Blue collar or Daisy'} value={name} onChangeText={setName}/>}
@@ -142,8 +152,9 @@ function NurseryApp() {
         {!puppies.length && <View style={s.empty}><Text style={s.subtitle}>Who’s in the litter?</Text><Text style={s.body}>Add each puppy by name or collar identifier to start tracking daily weights.</Text></View>}
         {puppies.map(p=>{const entries=history(records,p.id);const latest=entries[0];const expanded=!!expandedHistories[p.id];const visibleEntries=expanded?entries:entries.slice(0,3);return <View style={s.card} key={p.id}><View style={s.heading}><View style={{flexGrow:1,flexBasis:180}}><Text style={s.subtitle}>{p.name}</Text><Text style={s.small}>{entries.some(w=>w.date===today())?'✓ Weighed today':'No weight logged today'}</Text></View><Button label="Edit puppy" accessibilityLabel={`Edit ${p.name}`} secondary disabled={busy} onPress={()=>editPuppy(p)}/><Button label="+ Weight" disabled={busy} onPress={()=>open('weight',p.id)}/></View>{latest && <Text style={s.latest}>{displayWeight(latest.grams)} <Text style={s.small}>on {formatDate(latest.date)}</Text></Text>}{!entries.length && <Text style={s.body}>The first weigh-in starts their story.</Text>}{visibleEntries.map((w,i)=>{const previous=entries[i+1];const change=previous?w.grams-previous.grams:null;return <View key={w.id} style={s.history}><Text style={s.body}>{formatDate(w.date)}</Text><Text style={s.historyWeight}>{displayWeight(w.grams)}</Text><Text style={[s.delta,{color:change!==null&&change<0?'#a33c31':'#547864'}]}>{change===null?'First entry':`${change!>0?'+':''}${displayWeight(change!)}`}</Text><Button label="Edit" accessibilityLabel={`Edit weight for ${p.name} on ${formatDate(w.date)}`} secondary disabled={busy} onPress={()=>editWeight(w)}/></View>;})}{entries.length>1 && <Text style={s.small}>Change is from the previous recorded weigh-in.</Text>}{entries.length>3 && <Button label={expanded?'Show recent 3':`View all weights (${entries.length})`} accessibilityLabel={expanded?`Show recent 3 weights for ${p.name}`:`View all weights for ${p.name}`} expanded={expanded} secondary disabled={busy} onPress={()=>setExpandedHistories(current=>({...current,[p.id]:!current[p.id]}))}/>}</View>;})}
       </>}
+      </>}
     </>}
-    <Text style={s.footer}>myKennel · Made for the everyday care that matters.</Text>
+    <Text style={s.footer}>Rust to Gold Dust Bullies · Care, recorded.</Text>
   </ScrollView></KeyboardAvoidingView></SafeAreaView>;
 }
 const s=StyleSheet.create({

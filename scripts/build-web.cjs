@@ -12,10 +12,10 @@ execFileSync(process.execPath,[require.resolve('expo/bin/cli'),'export','--platf
 let html=fs.readFileSync(path.join(dist,'index.html'),'utf8');
 html=html.replace('</head>',`<link rel="manifest" href="/manifest.webmanifest" />
 <meta name="theme-color" content="#285845" />
-<meta name="description" content="Shared litter and puppy weight tracking for your kennel." />
+<meta name="description" content="Shared litter, puppy weight, and heat-cycle tracking for R2GD." />
 <meta name="apple-mobile-web-app-capable" content="yes" />
 <meta name="mobile-web-app-capable" content="yes" />
-<meta name="apple-mobile-web-app-title" content="myKennel" />
+<meta name="apple-mobile-web-app-title" content="R2GD" />
 <meta name="apple-mobile-web-app-status-bar-style" content="default" />
 <link rel="apple-touch-icon" href="/icons/icon-180.png" />
 <meta name="mykennel-release" content="__MYKENNEL_RELEASE__" />

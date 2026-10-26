@@ -1,0 +1,5 @@
+project_id = "mykennel"
+
+[functions.heat-reminders]
+# The handler verifies cron's private header or an authenticated member's test request itself.
+verify_jwt = false
